@@ -56,7 +56,7 @@ enum class RemoveContext { kEviction, kNormal };
 // A base class of cache exposing members and status agnostic of template type.
 class CacheBase {
  public:
-  CacheBase() = default;
+  CacheBase(unsigned numTiers = 1);
   virtual ~CacheBase() = default;
 
   // Movable but not copyable
@@ -64,6 +64,9 @@ class CacheBase {
   CacheBase& operator=(const CacheBase&) = delete;
   CacheBase(CacheBase&&) = default;
   CacheBase& operator=(CacheBase&&) = default;
+
+  // TODO: come up with some reasonable number
+  static constexpr unsigned kMaxTiers = 8;
 
   // Get a string referring to the cache name for this cache
   virtual const std::string getCacheName() const = 0;
@@ -252,6 +255,10 @@ class CacheBase {
   // @param numSlabs   The number of slabs to reclaim for the pool
   // @return The number of slabs that were actually reclaimed (<= numSlabs)
   virtual unsigned int reclaimSlabs(PoolId id, size_t numSlabs) = 0;
+
+  unsigned getNumTiers() const;
+
+  unsigned numTiers;
 
   // Protect 'poolRebalanceStragtegies_' and `poolResizeStrategies_`
   // and `poolOptimizeStrategy_`
