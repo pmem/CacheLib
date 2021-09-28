@@ -630,12 +630,28 @@ class MemoryAllocator {
     memoryPoolManager_.updateNumSlabsToAdvise(numSlabs);
   }
 
+  // @return the start address of the memory used by this allocator
+  void *getMemoryStart() {
+    return memoryStart_;
+  }
+
+  // @return size of the memory used by this allocator
+  size_t getMemorySize() {
+    return memorySize_;
+  }
+
  private:
   // @param memory    pointer to the memory.
   // @return          the MemoryPool corresponding to the memory.
   // @throw std::invalid_argument if the memory does not belong to any active
   //        allocation handed out by this allocator.
   MemoryPool& getMemoryPool(const void* memory) const;
+
+  // start address of the memory
+  void *memoryStart_;
+
+  // size of the memory
+  size_t memorySize_;
 
   // the config for the allocator.
   const Config config_;

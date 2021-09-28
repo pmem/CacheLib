@@ -33,6 +33,8 @@ MemoryAllocator::MemoryAllocator(Config config,
                                  void* memoryStart,
                                  size_t memSize)
     : config_(std::move(config)),
+      memoryStart_(memoryStart),
+      memorySize_(memSize),
       slabAllocator_(memoryStart,
                      memSize,
                      {config_.disableFullCoredump, config_.lockMemory}),
@@ -42,6 +44,8 @@ MemoryAllocator::MemoryAllocator(Config config,
 
 MemoryAllocator::MemoryAllocator(Config config, size_t memSize)
     : config_(std::move(config)),
+      memoryStart_(nullptr),
+      memorySize_(memSize),
       slabAllocator_(memSize,
                      {config_.disableFullCoredump, config_.lockMemory}),
       memoryPoolManager_(slabAllocator_) {
@@ -58,6 +62,8 @@ MemoryAllocator::MemoryAllocator(
               *object.enableZeroedSlabAllocs_ref(),
               disableCoredump,
               *object.lockMemory_ref()),
+      memoryStart_(memoryStart),
+      memorySize_(memSize),
       slabAllocator_(*object.slabAllocator_ref(),
                      memoryStart,
                      memSize,
