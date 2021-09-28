@@ -23,6 +23,12 @@
 namespace facebook {
 namespace cachelib {
 
+CacheBase::CacheBase(unsigned numTiers): numTiers(numTiers) {}
+
+unsigned CacheBase::getNumTiers() const {
+  return numTiers;
+}
+
 void CacheBase::setRebalanceStrategy(
     PoolId pid, std::shared_ptr<RebalanceStrategy> strategy) {
   std::unique_lock<std::mutex> l(lock_);
