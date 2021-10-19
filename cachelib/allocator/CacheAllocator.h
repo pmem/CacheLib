@@ -277,11 +277,6 @@ class CacheAllocator : public CacheBase {
                       uint32_t ttlSecs = 0,
                       uint32_t creationTime = 0);
 
-  // same as allocate except this allocates an item unevictable from cache
-  // We are in the process of deprecating this API and remove support for
-  // permanent items.
-  ItemHandle allocatePermanent_deprecated(PoolId id, Key key, uint32_t size);
-
   // Allocate a chained item
   //
   // The resulting chained item does not have a parent item and
@@ -298,21 +293,27 @@ class CacheAllocator : public CacheBase {
   //            if the item is invalid
   ItemHandle allocateChainedItem(const ItemHandle& parent, uint32_t size);
 
-  // Link a chained item to a parent item
+  // Link a chained item to a parent item and mark this parent handle as having
+  // chained allocations.
+  // The parent handle is not reset (to become a null handle) so that the caller
+  // can continue using it as before calling this api.
   //
   // @param parent  handle to the parent item
   // @param child   chained item that will be linked to the parent
   //
   // @throw std::invalid_argument if parent is nullptr
-  void addChainedItem(const ItemHandle& parent, ItemHandle child);
+  void addChainedItem(ItemHandle& parent, ItemHandle child);
 
-  // Pop the first chained item assocaited with this parent
+  // Pop the first chained item assocaited with this parent and unmark this
+  // parent handle as having chained allocations.
+  // The parent handle is not reset (to become a null handle) so that the caller
+  // can continue using it as before calling this api.
   //
   // @param parent  handle to the parent item
   //
   // @return ChainedItem  head if there exists one
   //         nullptr      otherwise
-  ItemHandle popChainedItem(const ItemHandle& parent);
+  ItemHandle popChainedItem(ItemHandle& parent);
 
   // Return the key to the parent item.
   //
@@ -342,14 +343,17 @@ class CacheAllocator : public CacheBase {
                                 ItemHandle newItem,
                                 Item& parent);
 
-  // transfers the ownership of the chain from the current parent to the new
-  // parent and inserts the new parent into the cache. Caller must synchronize
-  // with any modifications to the parent's chain and any calls to find() for
-  // the same key to ensure there are no more concurrent parent handle while
-  // doing this. While calling this method, the cache does not guarantee a
-  // consistent view for the key and the caller must not rely on this. The new
-  // parent and old parent must be allocations for the same key. New parent
-  // must also be an allocation that is not added to the cache.
+  // Transfers the ownership of the chain from the current parent to the new
+  // parent and inserts the new parent into the cache. Parent will be unmarked
+  // as having chained allocations and its nvmCache will be invalidated. Parent
+  // will not be null after calling this API.
+  //
+  // Caller must synchronize with any modifications to the parent's chain and
+  // any calls to find() for the same key to ensure there are no more concurrent
+  // parent handle while doing this. While calling this method, the cache does
+  // not guarantee a consistent view for the key and the caller must not rely on
+  // this. The new parent and old parent must be allocations for the same key.
+  // New parent must also be an allocation that is not added to the cache.
   //
   //
   // @param parent    the current parent of the chain we want to transfer
@@ -358,8 +362,7 @@ class CacheAllocator : public CacheBase {
   // @throw   std::invalid_argument if the parent does not have chained item or
   //          incorrect state of chained item or if any of the pre-conditions
   //          are not met
-  void transferChainAndReplace(const ItemHandle& parent,
-                               const ItemHandle& newParent);
+  void transferChainAndReplace(ItemHandle& parent, ItemHandle& newParent);
 
   // Inserts the allocated handle into the AccessContainer, making it
   // accessible for everyone. This needs to be the handle that the caller
@@ -1136,23 +1139,19 @@ class CacheAllocator : public CacheBase {
   void createMMContainers(const PoolId pid, MMConfig config);
 
   // acquire the MMContainer corresponding to the the Item's class and pool.
-  // if the item is unevictable, return the mm container for unevictable items
-  // in the same pool
   //
   // @return pointer to the MMContainer.
   // @throw  std::invalid_argument if the Item does not point to a valid
   // allocation from the memory allocator.
-  MMContainer& getMMContainer(const Item& item) const;
+  MMContainer& getMMContainer(const Item& item) const noexcept;
 
-  // acquire the MMContainer for the give pool and class id and creates one if
-  // it does not exist.
+  MMContainer& getMMContainer(PoolId pid, ClassId cid) const noexcept;
+
+  // acquire the MMContainer for the give pool and class id and creates one
+  // if it does not exist.
   //
   // @return pointer to a valid MMContainer that is initialized.
   MMContainer& getEvictableMMContainer(PoolId pid, ClassId cid) const noexcept;
-
-  // same as above, but return the unevictable mm container
-  MMContainer& getUnevictableMMContainer(PoolId pid,
-                                         ClassId cid) const noexcept;
 
   // create a new cache allocation. The allocation can be initialized
   // appropriately and made accessible through insert or insertOrReplace.
@@ -1167,11 +1166,8 @@ class CacheAllocator : public CacheBase {
   // @param size            the size of the allocation, exclusive of the key
   //                        size.
   // @param creationTime    Timestamp when this item was created
-  // @param expiryTime      set an expiry timestamp for the item
-  // @param unevictable     optional argument to make an item unevictable
-  //                        unevictable item may prevent the slab it belongs to
-  //                        from being released if it cannot be moved
-  //                        (0 means no expiration time).
+  // @param expiryTime      set an expiry timestamp for the item (0 means no
+  //                        expiration time).
   //
   // @return      the handle for the item or an invalid handle(nullptr) if the
   //              allocation failed. Allocation can fail if one such
@@ -1185,8 +1181,7 @@ class CacheAllocator : public CacheBase {
                               Key key,
                               uint32_t size,
                               uint32_t creationTime,
-                              uint32_t expiryTime,
-                              bool unevictable);
+                              uint32_t expiryTime);
 
   // Allocate a chained item
   //
@@ -1280,10 +1275,14 @@ class CacheAllocator : public CacheBase {
   //               successfully.
   bool moveChainedItem(ChainedItem& oldItem, ItemHandle& newItemHdl);
 
-  // transfers the chain ownership from parent to newParent. Parent and
-  // NewParent must be valid handles to items with same key and parent must
-  // have chained items and parent handle must be the only outstanding handle
-  // for parent. New parent must be without any chained item handles.
+  // Transfers the chain ownership from parent to newParent. Parent
+  // will be unmarked as having chained allocations. Parent will not be null
+  // after calling this API.
+  //
+  // Parent and NewParent must be valid handles to items with same key and
+  // parent must have chained items and parent handle must be the only
+  // outstanding handle for parent. New parent must be without any chained item
+  // handles.
   //
   // Chained item lock for the parent's key needs to be held in exclusive mode.
   //
@@ -1291,8 +1290,7 @@ class CacheAllocator : public CacheBase {
   // @param newParent the new parent for the chain
   //
   // @throw if any of the conditions for parent or newParent are not met.
-  void transferChainLocked(const ItemHandle& parent,
-                           const ItemHandle& newParent);
+  void transferChainLocked(ItemHandle& parent, ItemHandle& newParent);
 
   // replace a chained item in the existing chain. This needs to be called
   // with the chained item lock held exclusive
@@ -1425,9 +1423,13 @@ class CacheAllocator : public CacheBase {
       Deserializer& deserializer,
       const typename Item::PtrCompressor& compressor);
 
-  MMContainers deserializeUnevictableMMContainers(
-      Deserializer& deserializer,
-      const typename Item::PtrCompressor& compressor);
+  // Create a copy of empty MMContainers according to the configs of
+  // mmContainers_ This function is used when serilizing for persistence for the
+  // reason of backward compatibility. A copy of empty MMContainers from
+  // mmContainers_ will be created and serialized as unevictable mm containers
+  // and written to metadata so that previous CacheLib versions can restore from
+  // such a serialization. This function will be removed in the next version.
+  MMContainers createEmptyMMContainers();
 
   unsigned int reclaimSlabs(PoolId id, size_t numSlabs) final {
     return allocator_->reclaimSlabsAndGrow(id, numSlabs);
@@ -1752,11 +1754,7 @@ class CacheAllocator : public CacheBase {
   // container for the allocations which are currently being memory managed by
   // the cache allocator.
   // we need mmcontainer per allocator pool/allocation class.
-  MMContainers evictableMMContainers_;
-
-  // container for allocations which are unevictable
-  // we need one mm container per pool
-  MMContainers unevictableMMContainers_;
+  MMContainers mmContainers_;
 
   // container that is used for accessing the allocations by their key.
   std::unique_ptr<AccessContainer> accessContainer_;

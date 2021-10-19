@@ -82,12 +82,12 @@ class Cache {
                       uint32_t ttlSecs = 0);
 
   // inserts the item into the cache and tracks it.
-  ItemHandle insertOrReplace(const ItemHandle& handle);
+  ItemHandle insertOrReplace(ItemHandle& handle);
 
   // inserts the handle into cache and returns true if the insert was
   // successful, false otherwise. Insert operation can not be performed when
   // consistency checking is enabled.
-  bool insert(const ItemHandle& handle);
+  bool insert(ItemHandle& handle);
 
   // perform lookup in the cache and if consistency checking is enabled,
   // ensure that the lookup result is consistent with the past actions and
@@ -128,7 +128,7 @@ class Cache {
   // Adds a chained item to the parent.
   // @param  parent   the parent item's handle
   // @param child     handle to the child
-  void addChainedItem(const ItemHandle& parent, ItemHandle child);
+  void addChainedItem(ItemHandle& parent, ItemHandle child);
 
   template <typename... Params>
   auto viewAsChainedAllocs(Params&&... args) {
