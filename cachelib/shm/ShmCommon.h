@@ -21,6 +21,7 @@
 #include <sys/stat.h>
 
 #include <system_error>
+#include <variant>
 
 #include "cachelib/common/Utils.h"
 
@@ -92,9 +93,16 @@ struct ShmSegmentOpts {
   PageSizeT pageSize{PageSizeT::NORMAL};
   bool readOnly{false};
   size_t alignment{1}; // alignment for mapping.
+  ShmTypeOpts typeOpts{}; // opts specific to segment type
 
   explicit ShmSegmentOpts(PageSizeT p) : pageSize(p) {}
   explicit ShmSegmentOpts(PageSizeT p, bool ro) : pageSize(p), readOnly(ro) {}
+  explicit ShmSegmentOpts(PageSizeT p, bool ro, const std::string& path) :
+                                       pageSize(p), readOnly(ro),
+                                       typeOpts(path) {}
+  explicit ShmSegmentOpts(PageSizeT p, bool ro, bool posix) :
+                                       pageSize(p), readOnly(ro),
+                                       typeOpts(posix) {}
   ShmSegmentOpts() : pageSize(PageSizeT::NORMAL) {}
 };
 

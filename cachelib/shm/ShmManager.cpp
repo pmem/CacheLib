@@ -241,15 +241,17 @@ bool removeSegByName(ShmTypeOpts typeOpts, const std::string& uniqueName) {
 
 void ShmManager::removeByName(const std::string& dir,
                               const std::string& name,
-                              bool posix) {
-  removeSegByName(posix, uniqueIdForName(name, dir));
+                              ShmTypeOpts typeOpts) {
+  removeSegByName(typeOpts, uniqueIdForName(name, dir));
 }
 
 bool ShmManager::segmentExists(const std::string& cacheDir,
                                const std::string& shmName,
-                               bool posix) {
+                               ShmTypeOpts typeOpts) {
   try {
-    ShmSegment(ShmAttach, uniqueIdForName(shmName, cacheDir), posix);
+    ShmSegmentOpts opts;
+    opts.typeOpts = typeOpts;
+    ShmSegment(ShmAttach, uniqueIdForName(shmName, cacheDir), opts);
     return true;
   } catch (const std::exception& e) {
     return false;
@@ -257,10 +259,10 @@ bool ShmManager::segmentExists(const std::string& cacheDir,
 }
 
 std::unique_ptr<ShmSegment> ShmManager::attachShmReadOnly(
-    const std::string& dir, const std::string& name, bool posix, void* addr) {
+    const std::string& dir, const std::string& name, ShmTypeOpts typeOpts, void* addr) {
   ShmSegmentOpts opts{PageSizeT::NORMAL, true /* read only */};
-  auto shm = std::make_unique<ShmSegment>(ShmAttach, uniqueIdForName(name, dir),
-                                          posix, opts);
+  opts.typeOpts = typeOpts;
+  auto shm = std::make_unique<ShmSegment>(ShmAttach, uniqueIdForName(name, dir), opts);
   if (!shm->mapAddress(addr)) {
     throw std::invalid_argument(folly::sformat(
         "Error mapping shm {} under {}, addr: {}", name, dir, addr));
@@ -302,7 +304,9 @@ ShmAddr ShmManager::createShm(const std::string& shmName,
   // we are going to create a new segment most likely after trying to attach
   // to an old one. detach and remove any old ones if they have already been
   // attached or mapped
-  removeShm(shmName);
+  // TODO(SHM_FILE): should we try to remove the segment using all possible
+  // segment types?
+  removeShm(shmName, opts.typeOpts);
 
   DCHECK(segments_.find(shmName) == segments_.end());
   DCHECK(nameToOpts_.find(shmName) == nameToOpts_.end());
@@ -314,10 +318,17 @@ ShmAddr ShmManager::createShm(const std::string& shmName,
       usePosix_ ? "posix" : "SysV", usePosix_ ? "SysV" : "posix"));
   }
 
+  if (auto *v = std::get_if<PosixSysVSegmentOpts>(&opts.typeOpts)) {
+    if (usePosix_ != v->usePosix)
+      throw std::invalid_argument(
+        folly::sformat("Expected {} but got {} segment",
+        usePosix_ ? "posix" : "SysV", usePosix_ ? "SysV" : "posix"));
+  }
+
   std::unique_ptr<ShmSegment> newSeg;
   try {
     newSeg = std::make_unique<ShmSegment>(ShmNew, uniqueIdForName(shmName),
-                                          size, usePosix_, opts);
+                                          size, opts);
   } catch (const std::system_error& e) {
     // if segment already exists by this key and we dont know about
     // it(EEXIST), its an invalid state.
@@ -372,7 +383,7 @@ void ShmManager::attachNewShm(const std::string& shmName, ShmSegmentOpts opts) {
     segments_.emplace(shmName,
                       std::make_unique<ShmSegment>(ShmAttach,
                                                    uniqueIdForName(shmName),
-                                                   usePosix_, opts));
+                                                   opts));
   } catch (const std::system_error& e) {
     // we are trying to attach. nothing can get invalid if an error happens
     // here.
@@ -416,7 +427,7 @@ ShmAddr ShmManager::attachShm(const std::string& shmName,
   return shm.getCurrentMapping();
 }
 
-bool ShmManager::removeShm(const std::string& shmName) {
+bool ShmManager::removeShm(const std::string& shmName, ShmTypeOpts typeOpts) {
   try {
     auto& shm = getShmByName(shmName);
     shm.detachCurrentMapping();
@@ -431,7 +442,7 @@ bool ShmManager::removeShm(const std::string& shmName) {
   } catch (const std::invalid_argument&) {
     // shm by this name is not attached.
     const bool wasPresent =
-        removeSegByName(usePosix_, uniqueIdForName(shmName));
+        removeSegByName(typeOpts, uniqueIdForName(shmName));
     if (!wasPresent) {
       DCHECK(segments_.end() == segments_.find(shmName));
       DCHECK(nameToOpts_.end() == nameToOpts_.find(shmName));
