@@ -318,6 +318,13 @@ ShmAddr ShmManager::createShm(const std::string& shmName,
       usePosix_ ? "posix" : "SysV", usePosix_ ? "SysV" : "posix"));
   }
 
+  if (auto *v = std::get_if<PosixSysVSegmentOpts>(&opts.typeOpts)) {
+    if (usePosix_ != v->usePosix)
+      throw std::invalid_argument(
+        folly::sformat("Expected {} but got {} segment",
+        usePosix_ ? "posix" : "SysV", usePosix_ ? "SysV" : "posix"));
+  }
+
   std::unique_ptr<ShmSegment> newSeg;
   try {
     newSeg = std::make_unique<ShmSegment>(ShmNew, uniqueIdForName(shmName),
