@@ -18,57 +18,61 @@
 
 #include <string>
 
-#include "cachelib/shm/ShmCommon.h"
-
 namespace facebook {
 namespace cachelib {
 class MemoryTierCacheConfig {
- public:
-  // Creates instance of MemoryTierCacheConfig for Posix/SysV Shared memory.
-  static MemoryTierCacheConfig fromShm() {
-    // TODO: expand this method when adding support for file-mapped memory
-    return MemoryTierCacheConfig();
+public:
+  // Creates instance of MemoryTierCacheConfig for file-backed memory.
+  // @param path to file which CacheLib will use to map memory from.
+  // TODO: add fromDirectory, fromAnonymousMemory
+  static MemoryTierCacheConfig fromFile(const std::string& _file) {
+    MemoryTierCacheConfig config;
+    config.path = _file;
+    return config;
+  }
+
+  // Specifies size of this memory tier. Sizes of tiers  must be specified by
+  // either setting size explicitly or using ratio, mixing of the two is not supported.
+  MemoryTierCacheConfig& setSize(size_t _size) {
+    size = _size;
+    return *this;
   }
 
   // Specifies ratio of this memory tier to other tiers. Absolute size
   // of each tier can be calculated as:
-  // cacheSize * tierRatio / Sum of ratios for all tiers.
-  MemoryTierCacheConfig& setRatio(size_t _ratio) {
-    if (!_ratio) {
-      throw std::invalid_argument("Tier ratio must be an integer number >=1.");
-    }
+  // cacheSize * tierRatio / Sum of ratios for all tiers; the difference
+  // between total cache size and sum of all tier sizes resulted from
+  // round off error is accounted for when calculating the last tier's
+  // size to make the totals equal.
+  MemoryTierCacheConfig& setRatio(double _ratio) {
     ratio = _ratio;
     return *this;
   }
 
   size_t getRatio() const noexcept { return ratio; }
 
-  size_t calculateTierSize(size_t totalCacheSize, size_t partitionNum) {
-    // TODO: Call this method when tiers are enabled in allocator
-    // to calculate tier sizes in bytes.
-    if (!partitionNum) {
-      throw std::invalid_argument(
-          "The total number of tier ratios must be an integer number >=1.");
-    }
+  size_t getSize() const noexcept { return size; }
 
-    if (partitionNum > totalCacheSize) {
-      throw std::invalid_argument(
-          "Ratio must be less or equal to total cache size.");
-    }
+  const std::string& getPath() const noexcept { return path; }
 
-    return getRatio() * (totalCacheSize / partitionNum);
+  bool isFileBacked() const {
+    return  !path.empty();
   }
 
-  // Ratio is a number of parts of the total cache size to be allocated for this
-  // tier. E.g. if X is a total cache size, Yi are ratios specified for memory
-  // tiers, and Y is the sum of all Yi, then size of the i-th tier
-  // Xi = (X / Y) * Yi. For examle, to configure 2-tier cache where each
-  // tier is a half of the total cache size, set both tiers' ratios to 1.
-  size_t ratio{1};
+  // Size of this memory tiers
+  size_t size{0};
 
- private:
-  // TODO: introduce a container for tier settings when adding support for
-  // file-mapped memory
+  // Ratio is a number of parts of the total cache size to be allocated for this tier.
+  // E.g. if X is a total cache size, Yi are ratios specified for memory tiers,
+  // then size of the i-th tier Xi = (X / (Y1 + Y2)) * Yi and X = sum(Xi)
+  size_t ratio{0};
+
+  // Path to file for file system-backed memory tier
+  // TODO: consider using variant<file, directory, NUMA> to support different
+  // memory sources
+  std::string path;
+
+private:
   MemoryTierCacheConfig() = default;
 };
 } // namespace cachelib

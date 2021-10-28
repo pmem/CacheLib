@@ -26,6 +26,7 @@
 #include <string>
 
 #include "cachelib/allocator/Cache.h"
+#include "cachelib/allocator/MemoryTierCacheConfig.h"
 #include "cachelib/allocator/MM2Q.h"
 #include "cachelib/allocator/MemoryMonitor.h"
 #include "cachelib/allocator/MemoryTierCacheConfig.h"
@@ -194,19 +195,18 @@ class CacheAllocatorConfig {
   // This allows cache to be persisted across restarts. One example use case is
   // to preserve the cache when releasing a new version of your service. Refer
   // to our user guide for how to set up cache persistence.
+  // TODO: get rid of baseAddr or if set make sure all mapping are adjacent?
+  // We can also make baseAddr a per-tier configuration
   CacheAllocatorConfig& enableCachePersistence(std::string directory,
                                                void* baseAddr = nullptr);
 
-  // uses posix shm segments instead of the default sys-v shm segments.
-  // @throw std::invalid_argument if called without enabling
-  // cachePersistence()
+  // Uses posix shm segments instead of the default sys-v shm
+  // segments. @throw std::invalid_argument if called without enabling
+  // cachePersistence().
   CacheAllocatorConfig& usePosixForShm();
 
-  // Configures cache memory tiers. Each tier represents a cache region inside
-  // byte-addressable memory such as DRAM, Pmem, CXLmem.
-  // Accepts vector of MemoryTierCacheConfig. Each vector element describes
-  // configuration for a single memory cache tier. Tier sizes are specified as
-  // ratios, the number of parts of total cache size each tier would occupy.
+  // Configures cache memory tiers. Accepts vector of MemoryTierCacheConfig.
+  // Each vector element describes configuration for a single memory cache tier.
   CacheAllocatorConfig& configureMemoryTiers(const MemoryTierConfigs& configs);
 
   // Return reference to MemoryTierCacheConfigs.
@@ -595,6 +595,8 @@ class CacheAllocatorConfig {
 
   // Skip promote children items in chained when parent fail to promote
   bool skipPromoteChildrenWhenParentFailed{false};
+  // Configuration for memory tiers.
+  MemoryTierConfigs memoryTierConfigs;
 
   // If true, we will delay worker start until user explicitly calls
   // CacheAllocator::startCacheWorkers()
@@ -878,23 +880,69 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enableItemReaperInBackground(
 
 template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::configureMemoryTiers(
-    const MemoryTierConfigs& config) {
-  if (config.size() > kMaxCacheMemoryTiers) {
-    throw std::invalid_argument(folly::sformat(
-        "Too many memory tiers. The number of supported tiers is {}.",
-        kMaxCacheMemoryTiers));
-  }
-  if (!config.size()) {
-    throw std::invalid_argument(
-        "There must be at least one memory tier config.");
-  }
+      const MemoryTierConfigs& config) {
   memoryTierConfigs = config;
+  size_t sum_ratios = 0;
+  size_t sum_sizes = 0;
+
+  for (auto tier_config: memoryTierConfigs) {
+    auto tier_size = tier_config.getSize();
+    auto tier_ratio = tier_config.getRatio();
+    if ((!tier_size and !tier_ratio) || (tier_size and tier_ratio)) {
+      throw std::invalid_argument(
+        "For each memory tier either size or ratio must be set.");
+    }
+    sum_ratios += tier_ratio;
+    sum_sizes += tier_size;
+  }
+
+  if (sum_ratios) {
+    if (!getCacheSize()) {
+      throw std::invalid_argument(
+          "Total cache size must be specified when size ratios are \
+          used to specify memory tier sizes.");
+    } else {
+      if (getCacheSize() < sum_ratios) {
+        throw std::invalid_argument(
+          "Sum of all tier size ratios is greater than total cache size.");
+      }
+      // Convert ratios to sizes
+      sum_sizes = 0;
+      size_t partition_size = getCacheSize() / sum_ratios;
+      for (auto& tier_config: memoryTierConfigs) {
+        tier_config.setSize(partition_size * tier_config.getRatio());
+        sum_sizes += tier_config.getSize();
+      }
+      if (getCacheSize() != sum_sizes) {
+        // Adjust capacity of the last tier to account for rounding error
+        memoryTierConfigs.back().setSize(memoryTierConfigs.back().getSize() + \
+                                         (getCacheSize() - sum_sizes));
+        sum_sizes = getCacheSize();
+      }
+    }
+  } else if (sum_sizes) {
+    if (getCacheSize() && sum_sizes != getCacheSize()) {
+      throw std::invalid_argument(
+          "Sum of tier sizes doesn't match total cache size. \
+          Setting of cache total size is not required when per-tier \
+          sizes are specified - it is calculated as sum of tier sizes.");
+    }
+  } else {
+    throw std::invalid_argument(
+      "Either sum of all memory tiers sizes or sum of all ratios \
+      must be greater than 0.");
+  }
+
+  if (sum_sizes && !getCacheSize()) {
+    setCacheSize(sum_sizes);
+  }
+
   return *this;
 }
 
+//const std::vector<MemoryTierCacheConfig>& CacheAllocatorConfig<T>::getMemoryTierConfigs() {
 template <typename T>
-const typename CacheAllocatorConfig<T>::MemoryTierConfigs&
-CacheAllocatorConfig<T>::getMemoryTierConfigs() {
+const typename CacheAllocatorConfig<T>::MemoryTierConfigs& CacheAllocatorConfig<T>::getMemoryTierConfigs() {
   return memoryTierConfigs;
 }
 
@@ -1114,7 +1162,7 @@ std::map<std::string, std::string> CacheAllocatorConfig<T>::serialize() const {
 
   configMap["size"] = std::to_string(size);
   configMap["cacheDir"] = cacheDir;
-  configMap["posixShm"] = usePosixShm ? "set" : "empty";
+  configMap["posixShm"] = isUsingPosixShm() ? "set" : "empty";
 
   configMap["defaultAllocSizes"] = "";
   // Stringify std::set
