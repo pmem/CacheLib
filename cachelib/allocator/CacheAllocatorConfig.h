@@ -555,6 +555,9 @@ class CacheAllocatorConfig {
   // cache.
   uint64_t nvmAdmissionMinTTL{0};
 
+  // Configuration for memory tiers.
+  MemoryTierConfigs memoryTierConfigs;
+
   friend CacheT;
 
  private:
