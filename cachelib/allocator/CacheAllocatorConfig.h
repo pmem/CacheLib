@@ -877,7 +877,6 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::configureMemoryTiers(
   return *this;
 }
 
-//const std::vector<MemoryTierCacheConfig>& CacheAllocatorConfig<T>::getMemoryTierConfigs() {
 template <typename T>
 const typename CacheAllocatorConfig<T>::MemoryTierConfigs& CacheAllocatorConfig<T>::getMemoryTierConfigs() {
   return memoryTierConfigs;

@@ -1607,6 +1607,8 @@ class CacheAllocator : public CacheBase {
                   std::unique_ptr<T>& worker,
                   std::chrono::seconds timeout = std::chrono::seconds{0});
 
+  ShmSegmentOpts createShmCacheOpts();
+
   std::unique_ptr<MemoryAllocator> createNewMemoryAllocator();
   std::unique_ptr<MemoryAllocator> restoreMemoryAllocator();
   std::unique_ptr<CCacheManager> restoreCCacheManager();
@@ -1713,6 +1715,8 @@ class CacheAllocator : public CacheBase {
   const bool isOnShm_{false};
 
   const Config config_{};
+
+  const typename Config::MemoryTierConfigs memoryTierConfigs;
 
   // Manages the temporary shared memory segment for memory allocator that
   // is not persisted when cache process exits.
