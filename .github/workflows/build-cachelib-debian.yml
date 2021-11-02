@@ -1,7 +1,8 @@
 name: build-cachelib-debian-10
 on:
-  schedule:
-     - cron:  '30 5 * * 2,6'
+  push:
+  pull_request:
+
 jobs:
   build-cachelib-debian-10:
     name: "Debian/Buster - Build CacheLib with all dependencies"
