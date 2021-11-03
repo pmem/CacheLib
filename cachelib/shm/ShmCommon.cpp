@@ -157,6 +157,133 @@ PageSizeT getPageSizeInSMap(void* addr) {
   throw std::invalid_argument("address mapping not found in /proc/self/smaps");
 }
 
+int openImpl(const char* name, int flags, bool isFileShm = false) {
+  const int fd = isFileShm ? open(name, flags) : shm_open(name, flags, kRWMode);
+  if (fd != -1) {
+    return fd;
+  }
+  switch (errno) {
+  case EEXIST:
+  case EMFILE:
+  case ENFILE:
+  case EACCES:
+    util::throwSystemError(errno);
+    break;
+  case ENAMETOOLONG:
+  case EINVAL:
+    util::throwSystemError(errno, "Invalid segment name");
+    break;
+  case ENOENT:
+    if (!(flags & O_CREAT)) {
+      util::throwSystemError(errno);
+    } else {
+      XDCHECK(false);
+      util::throwSystemError(errno, "Invalid errno");
+    }
+    break;
+  default:
+    XDCHECK(false);
+    util::throwSystemError(errno, "Invalid errno");
+  }
+  return kInvalidFD;
+}
+
+void unlinkImpl(const char* const name, bool isFileShm = false) {
+  const int fd = isFileShm ? unlink(name) : shm_unlink(name);
+  if (ret == 0) {
+    return;
+  }
+  switch (errno) {
+  case ENOENT:
+  case EACCES:
+    util::throwSystemError(errno);
+    break;
+  case ENAMETOOLONG:
+  case EINVAL:
+    util::throwSystemError(errno, "Invalid segment name");
+    break;
+  default:
+    XDCHECK(false);
+    util::throwSystemError(errno, "Invalid errno");
+  }
+}
+
+void ftruncateImpl(int fd, size_t size) {
+  const int ret = ftruncate(fd, size);
+  if (ret == 0) {
+    return;
+  }
+  switch (errno) {
+  case EBADF:
+  case EINVAL:
+    util::throwSystemError(errno);
+    break;
+  default:
+    XDCHECK(false);
+    util::throwSystemError(errno, "Invalid errno");
+  }
+}
+
+void fstatImpl(int fd, stat_t* buf) {
+  const int ret = fstat(fd, buf);
+  if (ret == 0) {
+    return;
+  }
+  switch (errno) {
+  case EBADF:
+  case ENOMEM:
+  case EOVERFLOW:
+    util::throwSystemError(errno);
+    break;
+  default:
+    XDCHECK(false);
+    util::throwSystemError(errno, "Invalid errno");
+  }
+}
+
+void* mmapImpl(void* addr, size_t length, int prot, int flags, int fd, off_t offset) {
+  void* ret = mmap(addr, length, prot, flags, fd, offset);
+  if (ret != MAP_FAILED) {
+    return ret;
+  }
+
+  switch (errno) {
+  case EACCES:
+  case EAGAIN:
+    if (flags & MAP_LOCKED) {
+      util::throwSystemError(ENOMEM);
+      break;
+    }
+  case EBADF:
+  case EINVAL:
+  case ENFILE:
+  case ENODEV:
+  case ENOMEM:
+  case EPERM:
+  case ETXTBSY:
+  case EOVERFLOW:
+    util::throwSystemError(errno);
+    break;
+  default:
+    XDCHECK(false);
+    util::throwSystemError(errno, "Invalid errno");
+  }
+  return nullptr;
+}
+
+void munmapImpl(void* addr, size_t length) {
+  const int ret = munmap(addr, length);
+
+  if (ret == 0) {
+    return;
+  } else if (errno == EINVAL) {
+    util::throwSystemError(errno);
+  } else {
+    XDCHECK(false);
+    util::throwSystemError(EINVAL, "Invalid errno");
+  }
+}
+
 } // namespace detail
 } // namespace cachelib
 } // namespace facebook

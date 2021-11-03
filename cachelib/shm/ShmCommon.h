@@ -39,6 +39,7 @@ enum PageSizeT {
 };
 
 constexpr int kInvalidFD = -1;
+constexpr static mode_t kRWMode = 0666;
 
 // TODO(SHM_FILE): maybe we could use this inside the Tier Config class?
 struct FileShmSegmentOpts {
@@ -143,6 +144,25 @@ bool isPageAlignedAddr(void* addr, PageSizeT p = PageSizeT::NORMAL);
 //
 // @throw  std::invalid_argument if the address mapping is not found.
 PageSizeT getPageSizeInSMap(void* addr);
+
+// @throw  std::invalid_argument if the segment name is not created
+int  openImpl(const char* name, int flags, bool isFileShm = false);
+
+// @throw  std::invalid_argument if there is an error
+void unlinkImpl(const char* const name, bool isFileShm = false);
+
+// @throw  std::invalid_argument if there is an error
+void ftruncateImpl(int fd, size_t size);
+
+// @throw  std::invalid_argument if there is an error
+void fstatImpl(int fd, stat_t* buf);
+
+// @throw  std::invalid_argument if there is an error
+void* mmapImpl(void* addr, size_t length, int prot, int flags, int fd, off_t offset);
+
+// @throw  std::invalid_argument if there is an error
+void munmapImpl(void* addr, size_t length);
+
 } // namespace detail
 } // namespace cachelib
 } // namespace facebook
