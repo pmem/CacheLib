@@ -157,57 +157,6 @@ PageSizeT getPageSizeInSMap(void* addr) {
   throw std::invalid_argument("address mapping not found in /proc/self/smaps");
 }
 
-int openImpl(const char* name, int flags, bool isFileShm = false) {
-  const int fd = isFileShm ? open(name, flags) : shm_open(name, flags, kRWMode);
-  if (fd != -1) {
-    return fd;
-  }
-  switch (errno) {
-  case EEXIST:
-  case EMFILE:
-  case ENFILE:
-  case EACCES:
-    util::throwSystemError(errno);
-    break;
-  case ENAMETOOLONG:
-  case EINVAL:
-    util::throwSystemError(errno, "Invalid segment name");
-    break;
-  case ENOENT:
-    if (!(flags & O_CREAT)) {
-      util::throwSystemError(errno);
-    } else {
-      XDCHECK(false);
-      util::throwSystemError(errno, "Invalid errno");
-    }
-    break;
-  default:
-    XDCHECK(false);
-    util::throwSystemError(errno, "Invalid errno");
-  }
-  return kInvalidFD;
-}
-
-void unlinkImpl(const char* const name, bool isFileShm = false) {
-  const int fd = isFileShm ? unlink(name) : shm_unlink(name);
-  if (ret == 0) {
-    return;
-  }
-  switch (errno) {
-  case ENOENT:
-  case EACCES:
-    util::throwSystemError(errno);
-    break;
-  case ENAMETOOLONG:
-  case EINVAL:
-    util::throwSystemError(errno, "Invalid segment name");
-    break;
-  default:
-    XDCHECK(false);
-    util::throwSystemError(errno, "Invalid errno");
-  }
-}
-
 void ftruncateImpl(int fd, size_t size) {
   const int ret = ftruncate(fd, size);
   if (ret == 0) {

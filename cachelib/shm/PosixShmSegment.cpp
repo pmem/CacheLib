@@ -76,13 +76,13 @@ PosixShmSegment::~PosixShmSegment() {
 
 int PosixShmSegment::createNewSegment(const std::string& name) {
   constexpr static int createFlags = O_RDWR | O_CREAT | O_EXCL;
-  return detail::shmOpenImpl(name.c_str(), createFlags);
+  return detail::shmOpenImpl(shm_open, name.c_str(), createFlags, kRWMode);
 }
 
 int PosixShmSegment::getExisting(const std::string& name,
                                  const ShmSegmentOpts& opts) {
   int flags = opts.readOnly ? O_RDONLY : O_RDWR;
-  return detail::shmOpenImpl(name.c_str(), flags);
+  return detail::shmOpenImpl(shm_open, name.c_str(), flags, kRWMode);
 }
 
 void PosixShmSegment::markForRemoval() {
@@ -119,7 +119,7 @@ size_t PosixShmSegment::getSize() const {
     return buf.st_size;
   } else {
     throw std::runtime_error(folly::sformat(
-        "Trying to get size of  segment with name {} in an invalid state",
+        "Trying to get size of segment with name {} in an invalid state",
         getName()));
   }
   return 0;

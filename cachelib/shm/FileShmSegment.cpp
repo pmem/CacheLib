@@ -76,13 +76,13 @@ FileShmSegment::~FileShmSegment() {
 
 int FileShmSegment::createNewSegment(const std::string& name) {
   constexpr static int createFlags = O_RDWR | O_CREAT | O_EXCL;
-  return detail::openImpl(name.c_str(), createFlags, true);
+  return detail::openImpl(open, name.c_str(), createFlags);
 }
 
 int FileShmSegment::getExisting(const std::string& name,
                                  const ShmSegmentOpts& opts) {
   int flags = opts.readOnly ? O_RDONLY : O_RDWR;
-  return detail::openImpl(name.c_str(), flags, true);
+  return detail::openImpl(open, name.c_str(), flags);
 }
 
 void FileShmSegment::markForRemoval() {
@@ -122,7 +122,7 @@ size_t FileShmSegment::getSize() const {
     return buf.st_size;
   } else {
     throw std::runtime_error(folly::sformat(
-        "Trying to get size of  segment with name {} in an invalid state",
+        "Trying to get size of segment with name {} in an invalid state",
         getName()));
   }
   return 0;
