@@ -20,6 +20,8 @@
 #include <system_error>
 #include <variant>
 
+#include "cachelib/common/Utils.h"
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #include <folly/Format.h>
@@ -152,7 +154,7 @@ typedef std::function<int()> open_func_t;
 int openImpl(open_func_t const& open_func) {
   const int fd = open_func();
   if (fd == kInvalidFD) {
-    throw std::system_error(errno, std::system_category(), "invalid fd");
+    util::throwSystemError(errno, "invalid fd");
   }
   return fd;
 }
@@ -162,7 +164,7 @@ typedef std::function<int()> unlink_func_t;
 void unlinkImpl(unlink_func_t const& unlink_func) {
   const int fd = unlink_func();
   if (fd == kInvalidFD) {
-    throw std::system_error(errno, std::system_category(), "invalid fd");
+    util::throwSystemError(errno, "invalid fd");
   }
 }
 

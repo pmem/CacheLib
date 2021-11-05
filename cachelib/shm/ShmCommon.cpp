@@ -22,6 +22,7 @@
 #include <folly/String.h>
 #include <folly/logging/xlog.h>
 #include <sys/types.h>
+#include <sys/mman.h>
 
 namespace facebook {
 namespace cachelib {

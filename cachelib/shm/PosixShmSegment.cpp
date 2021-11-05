@@ -18,7 +18,6 @@
 
 #include <fcntl.h>
 #include <folly/logging/xlog.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
