@@ -74,13 +74,15 @@ FileShmSegment::~FileShmSegment() {
 
 int FileShmSegment::createNewSegment(const std::string& name) {
   constexpr static int createFlags = O_RDWR | O_CREAT | O_EXCL;
-  return detail::openImpl(open, name.c_str(), createFlags);
+  detail::open_func_t open_func = std::bind(open, name.c_str(), createFlags);
+  return detail::openImpl(open_func);
 }
 
 int FileShmSegment::getExisting(const std::string& name,
                                  const ShmSegmentOpts& opts) {
   int flags = opts.readOnly ? O_RDONLY : O_RDWR;
-  return detail::openImpl(open, name.c_str(), flags);
+  detail::open_func_t open_func = std::bind(open, name.c_str(), flags);
+  return detail::openImpl(open_func);
 }
 
 void FileShmSegment::markForRemoval() {
@@ -97,8 +99,8 @@ void FileShmSegment::markForRemoval() {
 
 bool FileShmSegment::removeByPath(const std::string& path) {
   try {
-    detail::unlink_func_t unlink_func = std::bind(unlink, key.c_str());
-    detail::unlinkImpl(unlink_func));
+    detail::unlink_func_t unlink_func = std::bind(unlink, path.c_str());
+    detail::unlinkImpl(unlink_func);
     return true;
   } catch (const std::system_error& e) {
     // unlink is opaque unlike sys-V api where its through the shmid. Hence

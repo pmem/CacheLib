@@ -74,13 +74,15 @@ PosixShmSegment::~PosixShmSegment() {
 
 int PosixShmSegment::createNewSegment(const std::string& name) {
   constexpr static int createFlags = O_RDWR | O_CREAT | O_EXCL;
-  return detail::shmOpenImpl(shm_open, name.c_str(), createFlags, kRWMode);
+  detail::open_func_t open_func = std::bind(shm_open, name.c_str(), createFlags, kRWMode);
+  return detail::openImpl(open_func);
 }
 
 int PosixShmSegment::getExisting(const std::string& name,
                                  const ShmSegmentOpts& opts) {
   int flags = opts.readOnly ? O_RDONLY : O_RDWR;
-  return detail::shmOpenImpl(shm_open, name.c_str(), flags, kRWMode);
+  detail::open_func_t open_func = std::bind(shm_open, name.c_str(), flags, kRWMode);
+  return detail::openImpl(open_func);
 }
 
 void PosixShmSegment::markForRemoval() {
@@ -99,7 +101,7 @@ bool PosixShmSegment::removeByName(const std::string& segmentName) {
   try {
     auto key = createKeyForName(segmentName);
     detail::unlink_func_t unlink_func = std::bind(shm_unlink, key.c_str());
-    detail::shmUnlinkImpl(unlink_func);
+    detail::unlinkImpl(unlink_func);
     return true;
   } catch (const std::system_error& e) {
     // unlink is opaque unlike sys-V api where its through the shmid. Hence

@@ -148,9 +148,9 @@ bool isPageAlignedAddr(void* addr, PageSizeT p = PageSizeT::NORMAL);
 PageSizeT getPageSizeInSMap(void* addr);
 
 // @throw  std::invalid_argument if the segment name is not created
-template <typename ... Args>
-int openImpl(std::function<int(Args...)> const & open_func, Args ... as) {
-  const int fd = open_func(as...);
+typedef std::function<int()> open_func_t;
+int openImpl(open_func_t const& open_func) {
+  const int fd = open_func();
   if (fd == kInvalidFD) {
     throw std::system_error(errno, std::system_category(), "invalid fd");
   }
