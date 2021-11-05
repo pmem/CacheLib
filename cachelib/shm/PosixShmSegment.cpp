@@ -27,8 +27,6 @@
 namespace facebook {
 namespace cachelib {
 
-typedef struct stat stat_t;
-
 PosixShmSegment::PosixShmSegment(ShmAttachT,
                                  const std::string& name,
                                  ShmSegmentOpts opts)
@@ -100,7 +98,8 @@ void PosixShmSegment::markForRemoval() {
 bool PosixShmSegment::removeByName(const std::string& segmentName) {
   try {
     auto key = createKeyForName(segmentName);
-    detail::shmUnlinkImpl(key.c_str());
+    detail::unlink_func_t unlink_func = std::bind(shm_unlink, key.c_str());
+    detail::shmUnlinkImpl(unlink_func);
     return true;
   } catch (const std::system_error& e) {
     // unlink is opaque unlike sys-V api where its through the shmid. Hence

@@ -29,6 +29,8 @@
 namespace facebook {
 namespace cachelib {
 
+typedef struct stat stat_t;
+
 enum ShmAttachT { ShmAttach };
 enum ShmNewT { ShmNew };
 
@@ -150,17 +152,17 @@ template <typename ... Args>
 int openImpl(std::function<int(Args...)> const & open_func, Args ... as) {
   const int fd = open_func(as...);
   if (fd == kInvalidFD) {
-    util::throwSystemError(errno);
+    throw std::system_error(errno, std::system_category(), "invalid fd");
   }
   return fd;
 }
 
 // @throw  std::invalid_argument if there is an error
-template <typename ... Args>
-void unlinkImpl(std::function<int(Args...)> const & unlink_func, Args ... as) {
-  const int fd = unlink_func(as...);
+typedef std::function<int()> unlink_func_t;
+void unlinkImpl(unlink_func_t const& unlink_func) {
+  const int fd = unlink_func();
   if (fd == kInvalidFD) {
-    util::throwSystemError(errno);
+    throw std::system_error(errno, std::system_category(), "invalid fd");
   }
 }
 
