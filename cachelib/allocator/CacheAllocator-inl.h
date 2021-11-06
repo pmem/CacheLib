@@ -27,14 +27,16 @@ CacheAllocator<CacheTrait>::CacheAllocator(Config config)
     : memoryTierConfigs(config.getMemoryTierConfigs()),
       isOnShm_{config.memMonitoringEnabled()},
       config_(config.validate()),
-      tempShm_(isOnShm_ ? std::make_unique<TempShmMapping>(config_.size)
+      tempShm_(isOnShm_ ? std::make_unique<TempShmMapping>(
+                            config_.getCacheSize())
                         : nullptr),
       allocator_(isOnShm_ ? std::make_unique<MemoryAllocator>(
                                 getAllocatorConfig(config_),
                                 tempShm_->getAddr(),
-                                config_.size)
+                                config_.getCacheSize())
                           : std::make_unique<MemoryAllocator>(
-                                getAllocatorConfig(config_), config_.size)),
+                                getAllocatorConfig(config_),
+                                config_.getCacheSize())),
       compactCacheManager_(std::make_unique<CCacheManager>(*allocator_)),
       compressor_(createPtrCompressor()),
       accessContainer_(std::make_unique<AccessContainer>(
@@ -51,7 +53,8 @@ CacheAllocator<CacheTrait>::CacheAllocator(Config config)
       nvmCacheState_{config_.cacheDir, config_.isNvmCacheEncryptionEnabled(),
                      config_.isNvmCacheTruncateAllocSizeEnabled()} {
   // TODO(MEMORY_TIER)
-  if (memoryTierConfigs.size()) {
+  if (std::holds_alternative<FileShmSegmentOpts>(
+      memoryTierConfigs[0].getShmTypeOpts())) {
     throw std::runtime_error(
       "Using custom memory tier is only supported for Shared Memory.");
   }
@@ -165,16 +168,7 @@ ShmSegmentOpts CacheAllocator<CacheTrait>::createShmCacheOpts() {
 
   ShmSegmentOpts opts;
   opts.alignment = sizeof(Slab);
-
-  // If memoryTierConfigs is empty, Fallback to Posix/SysV segment
-  // to keep legacy bahavior
-  // TODO(MEMORY_TIER) - guarantee there is always at least one mem
-  // layer inside Config
-  if (memoryTierConfigs.size()) {
-    opts.typeOpts = FileShmSegmentOpts(memoryTierConfigs[0].path);
-  } else {
-    opts.typeOpts = PosixSysVSegmentOpts(config_.isUsingPosixShm());
-  }
+  opts.typeOpts = memoryTierConfigs[0].getShmTypeOpts();
 
   return opts;
 }
@@ -185,10 +179,10 @@ CacheAllocator<CacheTrait>::createNewMemoryAllocator() {
   return std::make_unique<MemoryAllocator>(
       getAllocatorConfig(config_),
       shmManager_
-          ->createShm(detail::kShmCacheName, config_.size,
+          ->createShm(detail::kShmCacheName, config_.getCacheSize(),
                       config_.slabMemoryBaseAddr, createShmCacheOpts())
           .addr,
-      config_.size);
+      config_.getCacheSize());
 }
 
 template <typename CacheTrait>
@@ -199,7 +193,7 @@ CacheAllocator<CacheTrait>::restoreMemoryAllocator() {
       shmManager_
           ->attachShm(detail::kShmCacheName, config_.slabMemoryBaseAddr,
           createShmCacheOpts()).addr,
-      config_.size,
+      config_.getCacheSize(),
       config_.disableFullCoredump);
 }
 
@@ -2216,7 +2210,7 @@ PoolEvictionAgeStats CacheAllocator<CacheTrait>::getPoolEvictionAgeStats(
 template <typename CacheTrait>
 CacheMetadata CacheAllocator<CacheTrait>::getCacheMetadata() const noexcept {
   return CacheMetadata{kCachelibVersion, kCacheRamFormatVersion,
-                       kCacheNvmFormatVersion, config_.size};
+                       kCacheNvmFormatVersion, config_.getCacheSize()};
 }
 
 template <typename CacheTrait>

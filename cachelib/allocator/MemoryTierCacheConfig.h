@@ -18,6 +18,8 @@
 
 #include <string>
 
+#include "cachelib/shm/ShmCommon.h"
+
 namespace facebook {
 namespace cachelib {
 class MemoryTierCacheConfig {
@@ -27,7 +29,14 @@ public:
   // TODO: add fromDirectory, fromAnonymousMemory
   static MemoryTierCacheConfig fromFile(const std::string& _file) {
     MemoryTierCacheConfig config;
-    config.path = _file;
+    config.shmOpts = FileShmSegmentOpts(_file);
+    return config;
+  }
+
+  // Creates instance of MemoryTierCacheConfig for Posix/SysV Shared memory.
+  static MemoryTierCacheConfig fromShm() {
+    MemoryTierCacheConfig config;
+    config.shmOpts = PosixSysVSegmentOpts();
     return config;
   }
 
@@ -53,11 +62,7 @@ public:
 
   size_t getSize() const noexcept { return size; }
 
-  const std::string& getPath() const noexcept { return path; }
-
-  bool isFileBacked() const {
-    return  !path.empty();
-  }
+  const ShmTypeOpts& getShmTypeOpts() const noexcept { return shmOpts; }
 
   // Size of this memory tiers
   size_t size{0};
@@ -67,10 +72,8 @@ public:
   // then size of the i-th tier Xi = (X / (Y1 + Y2)) * Yi and X = sum(Xi)
   size_t ratio{0};
 
-  // Path to file for file system-backed memory tier
-  // TODO: consider using variant<file, directory, NUMA> to support different
-  // memory sources
-  std::string path;
+  // Options specific to shm type
+  ShmTypeOpts shmOpts;
 
 private:
   MemoryTierCacheConfig() = default;

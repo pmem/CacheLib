@@ -59,7 +59,8 @@ class MemoryTiersTest: public AllocatorTest<Allocator> {
       }
 
       for(auto i = 0; i < configs.size(); ++i) {
-        EXPECT_EQ(configs[i].getPath(), expectedPaths[i]);
+        auto &opt = std::get<FileShmSegmentOpts>(configs[i].getShmTypeOpts());
+        EXPECT_EQ(opt.path, expectedPaths[i]);
         EXPECT_GT(configs[i].getSize(), 0);
         if (configs[i].getRatio() && (i < configs.size() - 1)) {
           EXPECT_EQ(configs[i].getSize(), partition_size * configs[i].getRatio());
@@ -143,35 +144,35 @@ TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigPosixShmNotSet) {
 
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigNumberOfPartitionsTooLarge) {
   EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                                     {std::make_tuple(defaultTotalCacheSize, 0), std::make_tuple(1, 0)}),
+                                     {std::make_tuple(defaultTotalCacheSize, 0), std::make_tuple(1, 0)}).validate(),
                std::invalid_argument);
 }
 
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigSizesAndRatiosMixed) {
   EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                                     {std::make_tuple(1, 0), std::make_tuple(1, 1)}),
+                                     {std::make_tuple(1, 0), std::make_tuple(1, 1)}).validate(),
                std::invalid_argument);
   EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                                     {std::make_tuple(1, 1), std::make_tuple(0, 1)}),
+                                     {std::make_tuple(1, 1), std::make_tuple(0, 1)}).validate(),
                std::invalid_argument);
 }
 
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigSizesAndRatioNotSet) {
   EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                                     {std::make_tuple(1, 0), std::make_tuple(0, 0)}),
+                                     {std::make_tuple(1, 0), std::make_tuple(0, 0)}).validate(),
                std::invalid_argument);
 }
 
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigRatiosCacheSizeNotSet) {
   EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath},
                                      {std::make_tuple(1, 0), std::make_tuple(1, 0)},
-                                     /* setPosixShm */ true, /* cacheSize */ 0),
+                                     /* setPosixShm */ true, /* cacheSize */ 0).validate(),
                std::invalid_argument);
 }
 
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigSizesNeCacheSize) {
   EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                                     {std::make_tuple(0, 1), std::make_tuple(0, 1)}),
+                                     {std::make_tuple(0, 1), std::make_tuple(0, 1)}).validate(),
                std::invalid_argument);
 }
 
