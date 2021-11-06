@@ -20,6 +20,7 @@
 #include <folly/logging/xlog.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/mman.h>
 
 #include "cachelib/common/Utils.h"
 
