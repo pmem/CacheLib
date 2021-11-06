@@ -27,6 +27,9 @@
 namespace facebook {
 namespace cachelib {
 
+constexpr int kInvalidFD = -1;
+constexpr mode_t kRWMode = 0666;
+
 namespace detail {
 size_t getPageSize(PageSizeT pageSize) {
   static size_t sizes[] = {static_cast<size_t>(sysconf(_SC_PAGESIZE)),
@@ -156,6 +159,21 @@ PageSizeT getPageSizeInSMap(void* addr) {
     }
   }
   throw std::invalid_argument("address mapping not found in /proc/self/smaps");
+}
+
+int openImpl(open_func_t const& open_func) {
+  const int fd = open_func();
+  if (fd == kInvalidFD) {
+    util::throwSystemError(errno, "invalid fd");
+  }
+  return fd;
+}
+
+void unlinkImpl(unlink_func_t const& unlink_func) {
+  const int fd = unlink_func();
+  if (fd == kInvalidFD) {
+    util::throwSystemError(errno, "invalid fd");
+  }
 }
 
 void ftruncateImpl(int fd, size_t size) {

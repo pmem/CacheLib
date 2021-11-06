@@ -42,9 +42,6 @@ enum PageSizeT {
   ONE_GB,
 };
 
-constexpr int kInvalidFD = -1;
-constexpr mode_t kRWMode = 0666;
-
 // TODO(SHM_FILE): maybe we could use this inside the Tier Config class?
 struct FileShmSegmentOpts {
   FileShmSegmentOpts(std::string path = ""): path(path) {}
@@ -151,22 +148,11 @@ PageSizeT getPageSizeInSMap(void* addr);
 
 // @throw  std::invalid_argument if the segment name is not created
 typedef std::function<int()> open_func_t;
-int openImpl(open_func_t const& open_func) {
-  const int fd = open_func();
-  if (fd == kInvalidFD) {
-    util::throwSystemError(errno, "invalid fd");
-  }
-  return fd;
-}
+int openImpl(open_func_t const& open_func);
 
 // @throw  std::invalid_argument if there is an error
 typedef std::function<int()> unlink_func_t;
-void unlinkImpl(unlink_func_t const& unlink_func) {
-  const int fd = unlink_func();
-  if (fd == kInvalidFD) {
-    util::throwSystemError(errno, "invalid fd");
-  }
-}
+void unlinkImpl(unlink_func_t const& unlink_func);
 
 // @throw  std::invalid_argument if there is an error
 void ftruncateImpl(int fd, size_t size);
