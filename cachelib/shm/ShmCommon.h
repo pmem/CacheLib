@@ -22,6 +22,8 @@
 
 #include <system_error>
 
+#include "cachelib/common/Utils.h"
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #include <folly/Format.h>
@@ -61,6 +63,10 @@
 namespace facebook {
 namespace cachelib {
 
+constexpr int kInvalidFD = -1;
+
+typedef struct stat stat_t;
+
 enum ShmAttachT { ShmAttach };
 enum ShmNewT { ShmNew };
 
@@ -69,6 +75,18 @@ enum PageSizeT {
   TWO_MB,
   ONE_GB,
 };
+
+struct FileShmSegmentOpts {
+  FileShmSegmentOpts(std::string path = ""): path(path) {}
+  std::string path;
+};
+
+struct PosixSysVSegmentOpts {
+  PosixSysVSegmentOpts(bool usePosix = false): usePosix(usePosix) {}
+  bool usePosix;
+};
+
+using ShmTypeOpts = std::variant<FileShmSegmentOpts, PosixSysVSegmentOpts>;
 
 struct ShmSegmentOpts {
   PageSizeT pageSize{PageSizeT::NORMAL};
@@ -153,6 +171,27 @@ bool isPageAlignedAddr(void* addr, PageSizeT p = PageSizeT::NORMAL);
 //
 // @throw  std::invalid_argument if the address mapping is not found.
 PageSizeT getPageSizeInSMap(void* addr);
+
+// @throw  std::invalid_argument if the segment name is not created
+typedef std::function<int()> open_func_t;
+int openImpl(open_func_t const& open_func, int flags);
+
+// @throw  std::invalid_argument if there is an error
+typedef std::function<int()> unlink_func_t;
+void unlinkImpl(unlink_func_t const& unlink_func);
+
+// @throw  std::invalid_argument if there is an error
+void ftruncateImpl(int fd, size_t size);
+
+// @throw  std::invalid_argument if there is an error
+void fstatImpl(int fd, stat_t* buf);
+
+// @throw  std::invalid_argument if there is an error
+void* mmapImpl(void* addr, size_t length, int prot, int flags, int fd, off_t offset);
+
+// @throw  std::invalid_argument if there is an error
+void munmapImpl(void* addr, size_t length);
+
 } // namespace detail
 } // namespace cachelib
 } // namespace facebook
