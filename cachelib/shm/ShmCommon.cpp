@@ -27,9 +27,6 @@
 namespace facebook {
 namespace cachelib {
 
-constexpr int kInvalidFD = -1;
-constexpr mode_t kRWMode = 0666;
-
 namespace detail {
 size_t getPageSize(PageSizeT pageSize) {
   static size_t sizes[] = {static_cast<size_t>(sysconf(_SC_PAGESIZE)),

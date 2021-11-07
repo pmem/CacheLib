@@ -31,6 +31,8 @@
 namespace facebook {
 namespace cachelib {
 
+constexpr int kInvalidFD = -1;
+
 typedef struct stat stat_t;
 
 enum ShmAttachT { ShmAttach };

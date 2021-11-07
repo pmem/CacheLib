@@ -27,6 +27,8 @@
 namespace facebook {
 namespace cachelib {
 
+constexpr mode_t kRWMode = 0666;
+
 PosixShmSegment::PosixShmSegment(ShmAttachT,
                                  const std::string& name,
                                  ShmSegmentOpts opts)
