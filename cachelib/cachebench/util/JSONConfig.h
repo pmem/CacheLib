@@ -23,8 +23,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "cachelib/allocator/MemoryTierCacheConfig.h"
-
 #define JSONSetVal(configJson, field)             \
   do {                                            \
     const auto* ptr = configJson.get_ptr(#field); \
@@ -74,16 +72,6 @@ struct JSONConfig {
         ValType tmp;
         setValImpl(tmp, v);
         field.push_back(tmp);
-      }
-    }
-  }
-
-  static void setValImpl(std::vector<MemoryTierCacheConfig>& field,
-                         const folly::dynamic& val) {
-    if (val.isArray()) {
-      field.clear();
-      for (const auto& v : val) {
-        field.push_back(MemoryTierCacheConfig::fromJSON(v));
       }
     }
   }
