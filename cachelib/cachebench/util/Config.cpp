@@ -57,8 +57,6 @@ StressorConfig::StressorConfig(const folly::dynamic& configJson) {
 
   JSONSetVal(configJson, maxInvalidDestructorCount);
 
-  JSONSetVal(configJson, memoryTierConfigs);
-
   JSONSetVal(configJson, repeatTraceReplay);
   JSONSetVal(configJson, timestampFactor);
 
@@ -78,7 +76,7 @@ StressorConfig::StressorConfig(const folly::dynamic& configJson) {
   // If you added new fields to the configuration, update the JSONSetVal
   // to make them available for the json configs and increment the size
   // below
-  checkCorrectSize<StressorConfig, 480>();
+  checkCorrectSize<StressorConfig, 456>();
 }
 
 bool StressorConfig::usesChainedItems() const {
