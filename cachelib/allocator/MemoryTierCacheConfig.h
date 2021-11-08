@@ -18,6 +18,9 @@
 
 #include <string>
 
+#include <folly/dynamic.h>
+#include <folly/json.h>
+
 namespace facebook {
 namespace cachelib {
 class MemoryTierCacheConfig {
@@ -28,6 +31,12 @@ public:
   static MemoryTierCacheConfig fromFile(const std::string& _file) {
     MemoryTierCacheConfig config;
     config.path = _file;
+    return config;
+  }
+
+  static MemoryTierCacheConfig fromJSON(const folly::dynamic& val) {
+    MemoryTierCacheConfig config;
+    config.path = "_file";
     return config;
   }
 
