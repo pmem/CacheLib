@@ -40,6 +40,12 @@ public:
     return config;
   }
 
+  static MemoryTierCacheConfig fromJSON(const folly::dynamic& val) {
+    MemoryTierCacheConfig config;
+    config.path = "_file";
+    return config;
+  }
+
   // Specifies size of this memory tier. Sizes of tiers  must be specified by
   // either setting size explicitly or using ratio, mixing of the two is not supported.
   MemoryTierCacheConfig& setSize(size_t _size) {

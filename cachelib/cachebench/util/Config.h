@@ -211,6 +211,7 @@ struct StressorConfig : public JSONConfig {
   // Max number of inconsistency detection (exits after exceeded).
   uint64_t maxInconsistencyCount{50};
 
+
   // Trace file containing the operations for more accurate replay
   // Supported formats include specifying an absolute filename and filename
   // relative to the configPath
@@ -234,6 +235,9 @@ struct StressorConfig : public JSONConfig {
   // Max number of invalid destructor detection (destructor call more than once
   // for an item or wrong version).
   uint64_t maxInvalidDestructorCount{50};
+
+  // Configs of memory tiers
+  std::vector<MemoryTierCacheConfig> memoryTierConfigs;
 
   // Allows multiple distributions, one corresponding to each pool of workload
   // in the cache.
