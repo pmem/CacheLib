@@ -94,6 +94,10 @@ Cache<Allocator>::Cache(const CacheConfig& config,
 
   allocatorConfig_.setCacheSize(config_.cacheSizeMB * (MB));
 
+  if (config_.memoryTierConfigs.size()) {
+    allocatorConfig_.configureMemoryTiers(config_.memoryTierConfigs);
+  }
+
   auto cleanupGuard = folly::makeGuard([&] {
     if (!nvmCacheFilePath_.empty()) {
       util::removePath(nvmCacheFilePath_);
