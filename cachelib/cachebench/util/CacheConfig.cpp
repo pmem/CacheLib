@@ -93,10 +93,16 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, enableItemDestructorCheck);
   JSONSetVal(configJson, enableItemDestructor);
 
+  if (configJson.count("memoryTiers")) {
+    for (auto& it : configJson["memoryTiers"]) {
+      memoryTierConfigs.push_back(MemoryTierConfig(it).getMemoryTierCacheConfig());
+    }
+  }
+
   // if you added new fields to the configuration, update the JSONSetVal
   // to make them available for the json configs and increment the size
   // below
-  checkCorrectSize<CacheConfig, 688>();
+  checkCorrectSize<CacheConfig, 712>();
 
   if (numPools != poolSizes.size()) {
     throw std::invalid_argument(folly::sformat(
@@ -125,6 +131,16 @@ std::shared_ptr<RebalanceStrategy> CacheConfig::getRebalanceStrategy() const {
         RandomStrategy::Config{static_cast<unsigned int>(rebalanceMinSlabs)});
   }
 }
+
+
+MemoryTierConfig::MemoryTierConfig(const folly::dynamic& configJson) {
+  JSONSetVal(configJson, file);
+  JSONSetVal(configJson, ratio);
+  JSONSetVal(configJson, size);
+
+  checkCorrectSize<MemoryTierConfig, 48>();
+}
+
 } // namespace cachebench
 } // namespace cachelib
 } // namespace facebook
