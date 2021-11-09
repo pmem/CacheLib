@@ -5,7 +5,7 @@
     "memoryTiers" : [
       {
         "ratio": 1,
-        "file": "/tmp/memory-mapped-tier" 
+        "file": "/tmp/memory-mapped-tier"
       }
     ],
     "poolRebalanceIntervalSec" : 1,
@@ -15,7 +15,6 @@
     "poolSizes" : [0.3, 0.7]
   },
   "test_config" : {
-      
       "numOps" : 100000,
       "numThreads" : 32,
       "numKeys" : 1000000,
@@ -31,5 +30,5 @@
       "delRatio" : 0.05,
       "keyPoolDistribution": [0.4, 0.6],
       "opPoolDistribution" : [0.5, 0.5]
-    }
+  }
 }
