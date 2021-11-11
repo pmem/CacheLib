@@ -211,6 +211,11 @@ struct CacheConfig : public JSONConfig {
   // Not used when its value is 0.  In seconds.
   uint32_t memoryOnlyTTL{0};
 
+  // Directory for the cache to enable persistence across restarts.
+  std::string persistedCacheDir{""};
+
+  bool usePosixShm{false};
+
   std::vector<MemoryTierCacheConfig> memoryTierConfigs{};
 
   // If enabled, we will use nvm admission policy tuned for ML use cases

@@ -2,10 +2,12 @@
 {
   "cache_config" : {
     "cacheSizeMB" : 512,
+    "usePosixShm" : true,
+    "persistedCacheDir" : "/tmp/mem-tiers",
     "memoryTiers" : [
       {
         "ratio": 1,
-        "file": "/tmp/memory-mapped-tier"
+        "file": "/tmp/mem-tiers/memory-mapped-tier"
       }
     ],
     "poolRebalanceIntervalSec" : 1,
