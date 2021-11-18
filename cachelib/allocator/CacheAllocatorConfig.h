@@ -200,10 +200,13 @@ class CacheAllocatorConfig {
 
   // Configures cache memory tiers. Accepts vector of MemoryTierCacheConfig.
   // Each vector element describes configuration for a single memory cache tier.
+  // @throw std::invalid_argument if:
+  // - the size of configs is 0
+  // - memory tiers use both size and ratio parameters
   CacheAllocatorConfig& configureMemoryTiers(const MemoryTierConfigs& configs);
 
-  // Return reference to MemoryTierCacheConfigs.
-  const MemoryTierConfigs& getMemoryTierConfigs();
+  // Return vector of memory tier configs.
+  MemoryTierConfigs getMemoryTierConfigs() const;
 
   // This turns on a background worker that periodically scans through the
   // access container and look for expired items and remove them.
@@ -334,7 +337,7 @@ class CacheAllocatorConfig {
 
   const std::string& getCacheName() const noexcept { return cacheName; }
 
-  size_t getCacheSize() const noexcept { return size; }
+  size_t getCacheSize() const noexcept;
 
   bool isUsingPosixShm() const noexcept { return usePosixShm; }
 
@@ -552,12 +555,16 @@ class CacheAllocatorConfig {
   // cache.
   uint64_t nvmAdmissionMinTTL{0};
 
-  // Configuration for memory tiers.
-  MemoryTierConfigs memoryTierConfigs;
-
   friend CacheT;
 
  private:
+  void validateMemoryTiersWithSize(const MemoryTierConfigs&, size_t) const;
+
+  // Configuration for memory tiers.
+  MemoryTierConfigs memoryTierConfigs{
+    {MemoryTierCacheConfig::fromShm().setRatio(1)}
+  };
+
   void mergeWithPrefix(
       std::map<std::string, std::string>& configMap,
       const std::map<std::string, std::string>& configMapToMerge,
@@ -576,6 +583,8 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setCacheName(
 
 template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setCacheSize(size_t _size) {
+  validateMemoryTiersWithSize(this->memoryTierConfigs, _size);
+
   size = _size;
   constexpr size_t maxCacheSizeWithCoredump = 64'424'509'440; // 60GB
   if (size <= maxCacheSizeWithCoredump) {
@@ -818,69 +827,62 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enableItemReaperInBackground(
 template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::configureMemoryTiers(
       const MemoryTierConfigs& config) {
-  memoryTierConfigs = config;
-  size_t sum_ratios = 0;
-  size_t sum_sizes = 0;
+  if (!config.size()) {
+    throw std::invalid_argument("There must be at least one memory tier.");
+  }
 
-  for (auto tier_config: memoryTierConfigs) {
+  for (auto tier_config: config) {
     auto tier_size = tier_config.getSize();
     auto tier_ratio = tier_config.getRatio();
     if ((!tier_size and !tier_ratio) || (tier_size and tier_ratio)) {
       throw std::invalid_argument(
         "For each memory tier either size or ratio must be set.");
     }
-    sum_ratios += tier_ratio;
-    sum_sizes += tier_size;
   }
 
-  if (sum_ratios) {
-    if (!getCacheSize()) {
-      throw std::invalid_argument(
-          "Total cache size must be specified when size ratios are \
-          used to specify memory tier sizes.");
-    } else {
-      if (getCacheSize() < sum_ratios) {
-        throw std::invalid_argument(
-          "Sum of all tier size ratios is greater than total cache size.");
-      }
-      // Convert ratios to sizes
-      sum_sizes = 0;
-      size_t partition_size = getCacheSize() / sum_ratios;
-      for (auto& tier_config: memoryTierConfigs) {
-        tier_config.setSize(partition_size * tier_config.getRatio());
-        sum_sizes += tier_config.getSize();
-      }
-      if (getCacheSize() != sum_sizes) {
-        // Adjust capacity of the last tier to account for rounding error
-        memoryTierConfigs.back().setSize(memoryTierConfigs.back().getSize() + \
-                                         (getCacheSize() - sum_sizes));
-        sum_sizes = getCacheSize();
-      }
-    }
-  } else if (sum_sizes) {
-    if (getCacheSize() && sum_sizes != getCacheSize()) {
-      throw std::invalid_argument(
-          "Sum of tier sizes doesn't match total cache size. \
-          Setting of cache total size is not required when per-tier \
-          sizes are specified - it is calculated as sum of tier sizes.");
-    }
-  } else {
-    throw std::invalid_argument(
-      "Either sum of all memory tiers sizes or sum of all ratios \
-      must be greater than 0.");
-  }
+  validateMemoryTiersWithSize(config, this->size);
 
-  if (sum_sizes && !getCacheSize()) {
-    setCacheSize(sum_sizes);
-  }
+  memoryTierConfigs = config;
 
   return *this;
 }
 
-//const std::vector<MemoryTierCacheConfig>& CacheAllocatorConfig<T>::getMemoryTierConfigs() {
 template <typename T>
-const typename CacheAllocatorConfig<T>::MemoryTierConfigs& CacheAllocatorConfig<T>::getMemoryTierConfigs() {
-  return memoryTierConfigs;
+typename CacheAllocatorConfig<T>::MemoryTierConfigs
+CacheAllocatorConfig<T>::getMemoryTierConfigs() const {
+  MemoryTierConfigs config = memoryTierConfigs;
+  size_t sum_ratios = 0;
+
+  for (auto &tier_config: config) {
+    if (auto *v = std::get_if<PosixSysVSegmentOpts>(&tier_config.shmOpts)) {
+      v->usePosix = usePosixShm;
+    }
+
+    sum_ratios += tier_config.getRatio();
+  }
+
+  if (sum_ratios == 0)
+    return config;
+
+  // if ratios are used, size must be specified
+  XDCHECK(size);
+
+  // Convert ratios to sizes, size must be non-zero
+  size_t sum_sizes = 0;
+  size_t partition_size = size / sum_ratios;
+  for (auto& tier_config: config) {
+    tier_config.setSize(partition_size * tier_config.getRatio());
+    tier_config.setRatio(0);
+    sum_sizes += tier_config.getSize();
+  }
+
+  if (size != sum_sizes) {
+    // Adjust capacity of the last tier to account for rounding error
+    config.back().setSize(
+      config.back().getSize() + (getCacheSize() - sum_sizes));
+  }
+
+  return config;
 }
 
 template <typename T>
@@ -999,6 +1001,46 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setNvmAdmissionMinTTL(
 }
 
 template <typename T>
+size_t CacheAllocatorConfig<T>::getCacheSize() const noexcept {
+  if (size)
+    return size;
+
+  size_t sum_sizes = 0;
+  for (const auto &tier_config : getMemoryTierConfigs()) {
+    sum_sizes += tier_config.getSize();
+  }
+
+  return sum_sizes;
+}
+
+template <typename T>
+void CacheAllocatorConfig<T>::validateMemoryTiersWithSize(
+    const MemoryTierConfigs &config, size_t size) const {
+  size_t sum_ratios = 0;
+  size_t sum_sizes = 0;
+
+  for (const auto &tier_config: config) {
+    sum_ratios += tier_config.getRatio();
+    sum_sizes += tier_config.getSize();
+  }
+
+  if (sum_ratios && sum_sizes) {
+    throw  std::invalid_argument("Cannot mix ratios and sizes.");
+  } else if (sum_sizes) {
+    if (size && sum_sizes != size) {
+      throw std::invalid_argument(
+          "Sum of tier sizes doesn't match total cache size. "
+          "Setting of cache total size is not required when per-tier "
+          "sizes are specified - it is calculated as sum of tier sizes.");
+    }
+  } else if (!sum_ratios && !sum_sizes) {
+    throw std::invalid_argument(
+      "Either sum of all memory tiers sizes or sum of all ratios "
+      "must be greater than 0.");
+  }
+}
+
+template <typename T>
 const CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::validate() const {
   // we can track tail hits only if MMType is MM2Q
   if (trackTailHits && T::MMType::kId != MM2Q::kId) {
@@ -1019,6 +1061,23 @@ const CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::validate() const {
         size,
         maxCacheSize));
   }
+
+  size_t sum_ratios = 0;
+  for (auto tier_config: memoryTierConfigs) {
+    sum_ratios += tier_config.getRatio();
+  }
+
+  if (sum_ratios) {
+    if (!size) {
+      throw std::invalid_argument(
+          "Total cache size must be specified when size ratios are "
+          "used to specify memory tier sizes.");
+    } else if (size < sum_ratios) {
+      throw std::invalid_argument(
+        "Sum of all tier size ratios is greater than total cache size.");
+    }
+  }
+
   return *this;
 }
 
