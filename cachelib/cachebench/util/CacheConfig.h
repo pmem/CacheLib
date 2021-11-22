@@ -46,16 +46,23 @@ struct MemoryTierConfig : public JSONConfig {
 
   explicit MemoryTierConfig(const folly::dynamic& configJson);
   MemoryTierCacheConfig getMemoryTierCacheConfig() {
-    if (file.empty()) {
-      throw std::invalid_argument("Please specify valid path to memory mapped file.");
-    }
-    MemoryTierCacheConfig config = MemoryTierCacheConfig::fromFile(file).setSize(size).setRatio(ratio);
+    MemoryTierCacheConfig config = memoryTierCacheConfigFromSource();
+    config.setSize(size).setRatio(ratio);
     return config;
   }
 
   std::string file{""};
   size_t ratio{0};
   size_t size{0};
+
+private:
+  MemoryTierCacheConfig memoryTierCacheConfigFromSource() {
+    if (file.empty()) {
+      return MemoryTierCacheConfig::fromShm();
+    } else {
+      return MemoryTierCacheConfig::fromFile(file);
+    }
+  }
 };
 
 struct CacheConfig : public JSONConfig {
