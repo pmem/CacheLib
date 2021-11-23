@@ -115,8 +115,10 @@ TEST_F(LruMemoryTiersTest, TestValid1TierDaxSizeConfig) {
                                                  /* cacheSize */ 0);
   basicCheck(cfg, {defaultDaxPath});
 
-  // Setting size after conifguringMemoryTiers with sizes is not allowed.
-  EXPECT_THROW(cfg.setCacheSize(defaultTotalCacheSize + 1), std::invalid_argument);
+  // Setting size after conifguringMemoryTiers with sizes is allowed if there is only
+  // a single tier
+  cfg.setCacheSize(defaultTotalCacheSize + 1);
+  EXPECT_EQ(cfg.getCacheSize(), defaultTotalCacheSize + 1);
 }
 
 TEST_F(LruMemoryTiersTest, TestValid2TierDaxPmemConfig) {
@@ -138,7 +140,7 @@ TEST_F(LruMemoryTiersTest, TestValid2TierDaxPmemSizeConfig) {
                                                  true, 0);
   basicCheck(cfg, {defaultDaxPath, defaultPmemPath}, size_1 + size_2);
 
-  // Setting size after conifguringMemoryTiers with sizes is not allowed.
+  // Setting size after conifguringMemoryTiers with mutiple tiers is not allowed
   EXPECT_THROW(cfg.setCacheSize(size_1 + size_2 + 1), std::invalid_argument);
 }
 
@@ -150,7 +152,7 @@ TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigPosixShmNotSet) {
 
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigNumberOfPartitionsTooLarge) {
   EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                                     {std::make_tuple(defaultTotalCacheSize, 0), std::make_tuple(1, 0)}).validate(),
+                                     {std::make_tuple(defaultTotalCacheSize, 0), std::make_tuple(1, 0)}),
                std::invalid_argument);
 }
 
@@ -172,7 +174,7 @@ TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigSizesAndRatioNotSet) {
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigRatiosCacheSizeNotSet) {
   EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath},
                                      {std::make_tuple(1, 0), std::make_tuple(1, 0)},
-                                     /* setPosixShm */ true, /* cacheSize */ 0).validate(),
+                                     /* setPosixShm */ true, /* cacheSize */ 0),
                std::invalid_argument);
 }
 
