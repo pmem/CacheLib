@@ -265,6 +265,21 @@ bool CacheItem<CacheTrait>::isNvmEvicted() const noexcept {
 }
 
 template <typename CacheTrait>
+void CacheItem<CacheTrait>::markNotReady() noexcept {
+  ref_.markNotReady();
+}
+
+template <typename CacheTrait>
+void CacheItem<CacheTrait>::unmarkNotReady() noexcept {
+  ref_.unmarkNotReady();
+}
+
+template <typename CacheTrait>
+bool CacheItem<CacheTrait>::isNotReady() const noexcept {
+  return ref_.isNotReady();
+}
+
+template <typename CacheTrait>
 void CacheItem<CacheTrait>::markIsChainedItem() noexcept {
   XDCHECK(!hasChainedItem());
   ref_.markIsChainedItem();

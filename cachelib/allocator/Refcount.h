@@ -116,6 +116,10 @@ class FOLLY_PACK_ATTR RefcountWithFlags {
     // unevictable in the past.
     kUnevictable_NOOP,
 
+    // Item is accecible but content is not ready yet. Used by eviction
+    // when Item is moved between memory tiers.
+    kNotReady,
+
     // Unused. This is just to indciate the maximum number of flags
     kFlagMax,
   };
@@ -328,6 +332,14 @@ class FOLLY_PACK_ATTR RefcountWithFlags {
   void markNvmEvicted() noexcept { return setFlag<kNvmEvicted>(); }
   void unmarkNvmEvicted() noexcept { return unSetFlag<kNvmEvicted>(); }
   bool isNvmEvicted() const noexcept { return isFlagSet<kNvmEvicted>(); }
+
+  /**
+   * Marks that the item is migrating between memory tiers and
+   * not ready for access now. Accessing thread should wait.
+   */
+  void markNotReady() noexcept { return setFlag<kNotReady>(); }
+  void unmarkNotReady() noexcept { return unSetFlag<kNotReady>(); }
+  bool isNotReady() const noexcept { return isFlagSet<kNotReady>(); }
 
   // Whether or not an item is completely drained of access
   // Refcount is 0 and the item is not linked, accessible, nor moving
