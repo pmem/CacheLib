@@ -39,6 +39,10 @@ struct TestItem {
   using ChainedItem = int;
 
   void reset() {}
+
+  folly::StringPiece getKey() const { return folly::StringPiece(); }
+
+  bool isNotReady() const { return false; }
 };
 
 struct TestNvmCache;
@@ -78,6 +82,12 @@ struct TestAllocator {
   void markExpired(TestItemHandle& hdl) { hdl.markExpired(); }
 
   void adjustHandleCountForThread_private(int i) { tlRef_.tlStats() += i; }
+
+  bool addWaitContextForMovingItem(
+      folly::StringPiece key,
+      std::shared_ptr<WaitContext<TestItemHandle>> waiter) {
+    return false;
+  }
 
   util::FastStats<int> tlRef_;
 };
