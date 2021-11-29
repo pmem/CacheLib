@@ -52,9 +52,7 @@ CacheAllocator<CacheTrait>::CacheAllocator(Config config)
           [this](Item* it) -> ItemHandle { return acquire(it); })),
       chainedItemLocks_(config_.chainedItemsLockPower,
                         std::make_shared<MurmurHash2>()),
-      cacheCreationTime_{util::getCurrentTimeSec()},
-      nvmCacheState_{config_.cacheDir, config_.isNvmCacheEncryptionEnabled(),
-                     config_.isNvmCacheTruncateAllocSizeEnabled()} {
+      cacheCreationTime_{util::getCurrentTimeSec()} {
   // TODO(MEMORY_TIER)
   if (std::holds_alternative<FileShmSegmentOpts>(
       memoryTierConfigs[0].getShmTypeOpts())) {
@@ -100,9 +98,7 @@ CacheAllocator<CacheTrait>::CacheAllocator(SharedMemNewT, Config config)
           [this](Item* it) -> ItemHandle { return acquire(it); })),
       chainedItemLocks_(config_.chainedItemsLockPower,
                         std::make_shared<MurmurHash2>()),
-      cacheCreationTime_{util::getCurrentTimeSec()},
-      nvmCacheState_{config_.cacheDir, config_.isNvmCacheEncryptionEnabled(),
-                     config_.isNvmCacheTruncateAllocSizeEnabled()} {
+      cacheCreationTime_{util::getCurrentTimeSec()} {
   initCommon(false);
   shmManager_->removeShm(detail::kShmInfoName,
     PosixSysVSegmentOpts(config_.isUsingPosixShm()));
@@ -137,9 +133,7 @@ CacheAllocator<CacheTrait>::CacheAllocator(SharedMemAttachT, Config config)
           [this](Item* it) -> ItemHandle { return acquire(it); })),
       chainedItemLocks_(config_.chainedItemsLockPower,
                         std::make_shared<MurmurHash2>()),
-      cacheCreationTime_{*metadata_.cacheCreationTime_ref()},
-      nvmCacheState_{config_.cacheDir, config_.isNvmCacheEncryptionEnabled(),
-                     config_.isNvmCacheTruncateAllocSizeEnabled()} {
+      cacheCreationTime_{*metadata_.cacheCreationTime_ref()} {
   for (auto pid : *metadata_.compactCachePools_ref()) {
     isCompactCachePool_[pid] = true;
   }
@@ -257,7 +251,7 @@ CacheAllocator<CacheTrait>::restoreCCacheManager() {
 
 template <typename CacheTrait>
 void CacheAllocator<CacheTrait>::initCommon(bool dramCacheAttached) {
-  if (config_.nvmConfig.has_value()) {
+  if (config_.isNvmCacheEnabled()) {
     if (config_.nvmCacheAP) {
       nvmAdmissionPolicy_ = config_.nvmCacheAP;
     } else if (config_.rejectFirstAPNumEntries) {
@@ -283,9 +277,12 @@ void CacheAllocator<CacheTrait>::initCommon(bool dramCacheAttached) {
 
 template <typename CacheTrait>
 void CacheAllocator<CacheTrait>::initNvmCache(bool dramCacheAttached) {
-  if (!config_.nvmConfig.has_value()) {
+  if (!config_.isNvmCacheEnabled()) {
     return;
   }
+
+  nvmCacheState_.emplace(NvmCacheState(config_.cacheDir, config_.isNvmCacheEncryptionEnabled(),
+                                       config_.isNvmCacheTruncateAllocSizeEnabled()));
 
   // for some usecases that create pools, restoring nvmcache when dram cache
   // is not persisted is not supported.
@@ -293,15 +290,15 @@ void CacheAllocator<CacheTrait>::initNvmCache(bool dramCacheAttached) {
 
   // if we are dealing with persistency, cache directory should be enabled
   const bool truncate = config_.cacheDir.empty() ||
-                        nvmCacheState_.shouldStartFresh() || shouldDrop;
+                        nvmCacheState_.value().shouldStartFresh() || shouldDrop;
   if (truncate) {
-    nvmCacheState_.markTruncated();
+    nvmCacheState_.value().markTruncated();
   }
 
   nvmCache_ = std::make_unique<NvmCacheT>(*this, *config_.nvmConfig, truncate,
                                           config_.itemDestructor);
   if (!config_.cacheDir.empty()) {
-    nvmCacheState_.clearPrevState();
+    nvmCacheState_.value().clearPrevState();
   }
 }
 
@@ -3280,7 +3277,7 @@ std::optional<bool> CacheAllocator<CacheTrait>::saveNvmCache() {
     return false;
   }
 
-  nvmCacheState_.markSafeShutDown();
+  nvmCacheState_.value().markSafeShutDown();
   return true;
 }
 
@@ -3461,8 +3458,8 @@ GlobalCacheStats CacheAllocator<CacheTrait>::getGlobalCacheStats() const {
   const uint64_t currTime = util::getCurrentTimeSec();
   ret.cacheInstanceUpTime = currTime - cacheInstanceCreationTime_;
   ret.ramUpTime = currTime - cacheCreationTime_;
-  ret.nvmUpTime = currTime - nvmCacheState_.getCreationTime();
   ret.nvmCacheEnabled = nvmCache_ ? nvmCache_->isEnabled() : false;
+  ret.nvmUpTime = currTime - getNVMCacheCreationTime();
   ret.reaperStats = getReaperStats();
   ret.numActiveHandles = getNumActiveHandles();
 
