@@ -1996,7 +1996,7 @@ std::vector<std::string> CacheAllocator<CacheTrait>::dumpEvictionIterator(
   }
 
   // Always evict from the lowest layer.
-  auto tid = numTiers - 1;
+  int tid = numTiers - 1;
 
   if (static_cast<size_t>(tid) >= mmContainers_.size() ||
       static_cast<size_t>(pid) >= mmContainers_[tid].size() ||
@@ -2008,7 +2008,7 @@ std::vector<std::string> CacheAllocator<CacheTrait>::dumpEvictionIterator(
   std::vector<std::string> content;
 
   size_t i = 0;
-  while (i < numItems) {
+  while (i < numItems && tid >= 0) {
     auto& mm = *mmContainers_[tid][pid][cid];
     auto evictItr = mm.getEvictionIterator();
     while (evictItr && i < numItems) {
@@ -3668,7 +3668,8 @@ bool CacheAllocator<CacheTrait>::cleanupStrayShmSegments(
     // Any other concurrent process can not be attached to the segments or
     // even if it does, we want to mark it for destruction.
     ShmManager::removeByName(cacheDir, detail::kShmInfoName, posix);
-    ShmManager::removeByName(cacheDir, detail::kShmCacheName, posix);
+    ShmManager::removeByName(cacheDir, detail::kShmCacheName
+                             + std::to_string(0), posix);
     ShmManager::removeByName(cacheDir, detail::kShmHashTableName, posix);
     ShmManager::removeByName(cacheDir, detail::kShmChainedItemHashTableName,
                              posix);
