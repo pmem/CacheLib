@@ -1059,7 +1059,7 @@ const CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::validate() const {
   // CompressedPtr;
   // The second part specifies the minimal allocation size for each slot.
   // Multiplied, they inform us the maximal addressable space for cache.
-  size_t maxCacheSize = (1ul << CompressedPtr::kNumBits) * Slab::kMinAllocSize;
+  size_t maxCacheSize = CompressedPtr::getMaxAddressableSize() * Slab::kMinAllocSize;
   // Configured cache size should not exceed the maximal addressable space for
   // cache.
   if (size > maxCacheSize) {
