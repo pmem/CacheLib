@@ -32,6 +32,8 @@ jobs:
           gcc -v
       - name: "checkout sources"
         uses: actions/checkout@v2
+      - name: "download codecov using the download-codecov script"
+        run: ./download-codecov.sh
       - name: "build CacheLib using build script"
         run: ./contrib/build.sh -j -v -T
       - name: "run tests"

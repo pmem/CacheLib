@@ -1,0 +1,17 @@
+coverage:
+  status:
+    project:
+      default:
+        threshold: 0.2
+
+  ignore:
+    - contrib/
+    - examples/
+    - opt/
+    - website/
+    - tests/
+
+comment:
+  layout: "diff, files"
+  behavior: default
+  require_changes: yes
