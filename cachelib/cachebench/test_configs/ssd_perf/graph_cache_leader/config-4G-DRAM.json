@@ -3,11 +3,6 @@
     "cacheSizeMB": 4096,
     "navyReaderThreads": 32,
     "navyWriterThreads": 32,
-    "nvmCachePaths": ["/dev/md0"],
-    "writeAmpDeviceList": [
-      "nvme1n1",
-      "nvme2n1"
-    ],
     "navyBigHashBucketSize": 4096,
     "navyBigHashSizePct": 65,
     "navyBlockSize": 4096,
