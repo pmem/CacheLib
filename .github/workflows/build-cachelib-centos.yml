@@ -35,5 +35,5 @@ jobs:
       - name: "build CacheLib using build script"
         run: mkdir build && cd build && cmake ../cachelib -DBUILD_TESTS=ON -DCMAKE_INSTALL_PREFIX=/opt -DCMAKE_BUILD_TYPE=Debug && make install -j$(nproc)
       - name: "run tests"
-        timeout-minutes: 60
+        timeout-minutes: 120
         run: cd /opt/tests && $GITHUB_WORKSPACE/run_tests.sh
