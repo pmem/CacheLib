@@ -1,6 +1,8 @@
 {
   "cache_config": {
     "cacheSizeMB": 4096,
+    "usePosixShm": true,
+    "persistedCacheDir": "/tmp/mem-tier",
     "navyReaderThreads": 32,
     "navyWriterThreads": 32,
     "nvmCachePaths": ["/dev/nvme0n1"],

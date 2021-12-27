@@ -1,9 +1,11 @@
 {
   "cache_config": {
     "cacheSizeMB": 8192,
+    "usePosixShm": true,
+    "persistedCacheDir": "/tmp/mem-tier",
     "memoryTiers" : [
       {
-        "ratio": 1,
+        "ratio": 1
       },
       {
         "ratio": 1,
