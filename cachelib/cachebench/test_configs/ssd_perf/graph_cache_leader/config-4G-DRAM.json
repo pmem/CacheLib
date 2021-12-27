@@ -41,7 +41,7 @@
       778240,
       819200
     ],
-    "enableChainedItem": true,
+    "enableChainedItem": false,
     "htBucketPower": 26,
     "moveOnSlabRelease": false,
     "numPools": 2,
@@ -61,7 +61,7 @@
       0.477145458158078
     ],
     "numKeys": 4100000000,
-    "numOps": 200000000,
+    "numOps": 600000,
     "numThreads": 36,
     "opPoolDistribution": [
       0.571,
