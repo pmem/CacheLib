@@ -405,6 +405,10 @@ TYPED_TEST(BaseAllocatorTest, Nascent) { this->testNascent(); }
 
 TYPED_TEST(BaseAllocatorTest, BasicMultiTier) {this->testBasicMultiTier(); }
 
+TYPED_TEST(BaseAllocatorTest, SingleTierSize) {this->testSingleTierMemoryAllocatorSize(); }
+
+TYPED_TEST(BaseAllocatorTest, SingleTierSizeAnon) {this->testSingleTierMemoryAllocatorSizeAnonymous(); }
+
 namespace { // the tests that cannot be done by TYPED_TEST.
 
 using LruAllocatorTest = BaseAllocatorTest<LruAllocator>;

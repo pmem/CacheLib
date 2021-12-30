@@ -6165,7 +6165,8 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     };
 
     typename AllocatorT::Config config;
-    config.setCacheSize(100 * 1024 * 1024); /* 100 MB */
+    static constexpr size_t cacheSize = 100 * 1024 * 1024; /* 100 MB */
+    config.setCacheSize(cacheSize);
     config.enableCachePersistence(folly::sformat("/tmp/multi-tier-test/{}", ::getpid()));
     config.usePosixForShm();
     config.configureMemoryTiers({
