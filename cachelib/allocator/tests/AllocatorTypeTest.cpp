@@ -403,13 +403,7 @@ TYPED_TEST(BaseAllocatorTest, RebalanceWakeupAfterAllocFailure) {
 
 TYPED_TEST(BaseAllocatorTest, Nascent) { this->testNascent(); }
 
-TYPED_TEST(BaseAllocatorTest, DelayWorkersStart) {
-  this->testDelayWorkersStart();
-}
-
-TYPED_TEST(BaseAllocatorTest, SlabReleaseStuck) {
-  this->testSlabReleaseStuck();
-}
+TYPED_TEST(BaseAllocatorTest, BasicMultiTier) {this->testBasicMultiTier(); }
 
 namespace { // the tests that cannot be done by TYPED_TEST.
 

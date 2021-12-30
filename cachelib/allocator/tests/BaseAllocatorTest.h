@@ -6132,97 +6132,83 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     EXPECT_EQ(true, isRemoveCbTriggered);
   }
 
-  void testDelayWorkersStart() {
-    // Configure reaper and create an item with TTL
-    // Verify without explicitly starting workers, the item is not reaped
-    // And then verify after explicitly starting workers, the item is reaped
+  void testSingleTierMemoryAllocatorSize() {
     typename AllocatorT::Config config;
-    config.enableItemReaperInBackground(std::chrono::milliseconds{10})
-        .setDelayCacheWorkersStart();
+    static constexpr size_t cacheSize = 100 * 1024 * 1024; /* 100 MB */
+    config.setCacheSize(cacheSize);
+    config.enableCachePersistence(folly::sformat("/tmp/single-tier-test/{}", ::getpid()));
+    config.usePosixForShm();
 
-    AllocatorT alloc(config);
-    const size_t numBytes = alloc.getCacheMemoryStats().cacheSize;
-    auto poolId = alloc.addPool("default", numBytes);
+    AllocatorT alloc(AllocatorT::SharedMemNew, config);
 
-    {
-      auto handle = alloc.allocate(poolId, "test", 100, 2);
-      alloc.insertOrReplace(handle);
-    }
-
-    EXPECT_NE(nullptr, alloc.peek("test"));
-    std::this_thread::sleep_for(std::chrono::seconds{3});
-    // Still here because we haven't started the workers
-    EXPECT_NE(nullptr, alloc.peek("test"));
-
-    alloc.startCacheWorkers();
-    std::this_thread::sleep_for(std::chrono::seconds{1});
-    // Once reaper starts it will have expired this item quickly
-    EXPECT_EQ(nullptr, alloc.peek("test"));
+    EXPECT_LE(alloc.allocator_[0]->getMemorySize(), cacheSize);
   }
 
-  // Test to validate the logic to detect/export the slab release stuck.
-  // To do so, allocate two items and intentionally hold references
-  // while checking the stuck counter.
-  void testSlabReleaseStuck() {
-    const unsigned int releaseStuckThreshold = 10;
-    typename AllocatorT::Config config{};
-    config.setCacheSize(3 * Slab::kSize);
-    config.setSlabReleaseStuckThreashold(
-        std::chrono::seconds(releaseStuckThreshold));
+  void testSingleTierMemoryAllocatorSizeAnonymous() {
+    typename AllocatorT::Config config;
+    static constexpr size_t cacheSize = 100 * 1024 * 1024; /* 100 MB */
+    config.setCacheSize(cacheSize);
+
     AllocatorT alloc(config);
+
+    EXPECT_LE(alloc.allocator_[0]->getMemorySize(), cacheSize);
+  }
+
+  void testBasicMultiTier() {
+    using Item = typename AllocatorT::Item;
+    const static std::string data = "data";
+
+    std::set<std::string> movedKeys;
+    auto moveCb = [&](const Item& oldItem, Item& newItem, Item* /* parentPtr */) {
+      std::memcpy(newItem.getWritableMemory(), oldItem.getMemory(), oldItem.getSize());
+      movedKeys.insert(oldItem.getKey().str());
+    };
+
+    typename AllocatorT::Config config;
+    config.setCacheSize(100 * 1024 * 1024); /* 100 MB */
+    config.enableCachePersistence(folly::sformat("/tmp/multi-tier-test/{}", ::getpid()));
+    config.usePosixForShm();
+    config.configureMemoryTiers({
+      MemoryTierCacheConfig::fromShm().setRatio(1),
+      MemoryTierCacheConfig::fromShm().setRatio(1),
+    });
+    config.enableMovingOnSlabRelease(moveCb);
+
+    AllocatorT alloc(AllocatorT::SharedMemNew, config);
+
+    EXPECT_EQ(alloc.allocator_.size(), 2);
+    EXPECT_LE(alloc.allocator_[0]->getMemorySize(), cacheSize / 2);
+    EXPECT_LE(alloc.allocator_[1]->getMemorySize(), cacheSize / 2);
+
     const size_t numBytes = alloc.getCacheMemoryStats().cacheSize;
-    auto poolId = alloc.addPool("foobar", numBytes);
+    auto pid = alloc.addPool("default", numBytes);
 
-    // 3/4 * kSize to make sure items are allocated in different slabs
-    std::vector<uint32_t> sizes = {Slab::kSize * 3 / 4};
+    static constexpr size_t numOps = cacheSize / 1024;
+    for (int i = 0; i < numOps; i++) {
+      std::string key = std::to_string(i);
+      auto h = alloc.allocate(pid, key, 1024);
+      EXPECT_TRUE(h);
 
-    // Allocate two items to be used for tests
-    auto handle1 = util::allocateAccessible(alloc, poolId, "key1", sizes[0]);
-    ASSERT_NE(nullptr, handle1);
+      std::memcpy(h->getWritableMemory(), data.data(), data.size());
 
-    auto handle2 = util::allocateAccessible(alloc, poolId, "key2", sizes[0]);
-    ASSERT_NE(nullptr, handle2);
+      alloc.insertOrReplace(h);
+    }
 
-    const uint8_t classId = alloc.getAllocInfo(handle1->getMemory()).classId;
-    ASSERT_EQ(classId, alloc.getAllocInfo(handle2->getMemory()).classId);
+    EXPECT_TRUE(movedKeys.size() > 0);
 
-    // Assert that numSlabReleaseStuck is not set
-    ASSERT_EQ(0, alloc.getSlabReleaseStats().numSlabReleaseStuck);
+    size_t movedButStillInMemory = 0;
+    for (const auto &k : movedKeys) {
+      auto h = alloc.find(k);
 
-    // Trying to remove the slab where the item is allocated. Thus, the release
-    // will be stuck until the reference is dropped below.
-    auto r1 = std::async(std::launch::async, [&] {
-      alloc.releaseSlab(poolId, classId, SlabReleaseMode::kResize,
-                        handle1->getMemory());
-      ASSERT_EQ(nullptr, handle1);
-    });
+      if (h) {
+        movedButStillInMemory++;
+        /* All moved elements should be in the second tier. */
+        EXPECT_TRUE(alloc.allocator_[1]->isMemoryInAllocator(h->getMemory()));
+        EXPECT_EQ(data, std::string((char*)h->getMemory(), data.size()));
+      }
+    }
 
-    // Sleep for 2 + <releaseStuckThreshold> seconds; 2 seconds is an arbitrary
-    // margin to allow the release is detected as being stuck after
-    // <releaseStuckThreshold> seconds.
-    /* sleep override */ sleep(2 + releaseStuckThreshold);
-
-    ASSERT_EQ(1, alloc.getSlabReleaseStats().numSlabReleaseStuck);
-
-    // Do the same for another item
-    auto r2 = std::async(std::launch::async, [&] {
-      alloc.releaseSlab(poolId, classId, SlabReleaseMode::kResize,
-                        handle2->getMemory());
-      ASSERT_EQ(nullptr, handle2);
-    });
-
-    /* sleep override */ sleep(2 + releaseStuckThreshold);
-
-    ASSERT_EQ(2, alloc.getSlabReleaseStats().numSlabReleaseStuck);
-
-    // Now, release handles so the releaseSlab can proceed
-    handle1.reset();
-    r1.wait();
-    ASSERT_EQ(1, alloc.getSlabReleaseStats().numSlabReleaseStuck);
-
-    handle2.reset();
-    r2.wait();
-    ASSERT_EQ(0, alloc.getSlabReleaseStats().numSlabReleaseStuck);
+    EXPECT_TRUE(movedButStillInMemory > 0);
   }
 };
 } // namespace tests
