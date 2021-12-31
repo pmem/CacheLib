@@ -2930,9 +2930,6 @@ CacheAllocator<CacheTrait>::evictNormalItemForSlabRelease(Item& item) {
     return ItemHandle{};
   }
 
-  auto evictHandle = tryEvictToNextMemoryTier(&item);
-  if(evictHandle) return evictHandle;
-
   auto predicate = [](const Item& it) { return it.getRefCount() == 0; };
 
   const bool evictToNvmCache = shouldWriteToNvmCache(item);
