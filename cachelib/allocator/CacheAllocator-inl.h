@@ -785,8 +785,9 @@ CacheAllocator<CacheTrait>::releaseBackToAllocator(Item& it,
                                                    bool nascent,
                                                    const Item* toRecycle) {
   if (!it.isDrained()) {
-    throw std::runtime_error(
-        folly::sformat("cannot release this item: {}", it.toString()));
+    return ReleaseRes::kNotRecycled;
+    // throw std::runtime_error(
+    //     folly::sformat("cannot release this item: {}", it.toString()));
   }
   const auto tid = getTierId(it);
   const auto allocInfo = allocator_[tid]->getAllocInfo(it.getMemory());
