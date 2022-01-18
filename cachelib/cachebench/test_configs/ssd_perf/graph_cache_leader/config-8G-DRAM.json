@@ -1,6 +1,6 @@
 {
   "cache_config": {
-    "cacheSizeMB": 4096,
+    "cacheSizeMB": 8192,
     "usePosixShm": true,
     "persistedCacheDir": "/tmp/mem-tier",
     "navyReaderThreads": 32,
