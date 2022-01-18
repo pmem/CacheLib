@@ -65,6 +65,7 @@
     ]
   },
   "test_config": {
+    "checkConsistency" : true,
     "opDelayNs": 1000000,
     "opDelayBatch": 3,
     "generator": "online",

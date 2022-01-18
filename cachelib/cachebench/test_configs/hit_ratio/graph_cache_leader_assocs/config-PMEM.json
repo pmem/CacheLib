@@ -13,6 +13,7 @@
   }, 
   "test_config": 
     {
+      "checkConsistency" : true,
       "addChainedRatio": 0.0, 
       "delRatio": 0.0, 
       "enableLookaside": true, 
