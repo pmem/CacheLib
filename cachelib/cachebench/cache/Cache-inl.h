@@ -298,11 +298,19 @@ template <typename Allocator>
 void Cache<Allocator>::enableConsistencyCheck(
     const std::vector<std::string>& keys) {
   XDCHECK(valueTracker_ == nullptr);
+  XDCHECK(!valueValidatingEnabled());
   valueTracker_ =
       std::make_unique<ValueTracker>(ValueTracker::wrapStrings(keys));
   for (const std::string& key : keys) {
     invalidKeys_[key] = false;
   }
+}
+
+template <typename Allocator>
+void Cache<Allocator>::enableValueValidating(const std::string& expectedValue) {
+  XDCHECK(!valueValidatingEnabled());
+  XDCHECK(!consistencyCheckEnabled());
+  this->expectedValue_ = expectedValue;
 }
 
 template <typename Allocator>
@@ -398,6 +406,20 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::insertOrReplace(
 }
 
 template <typename Allocator>
+void Cache<Allocator>::validateValue(const ItemHandle& it) const {
+  XDCHECK(valueValidatingEnabled());
+
+  const auto& expected = expectedValue_.value();
+
+  auto ptr = reinterpret_cast<const uint8_t*>(getMemory(it));
+  auto cmp = std::memcmp(ptr, expected.data(),
+                         std::min<size_t>(expected.size(), getSize(it)));
+  if (cmp != 0) {
+    throw std::runtime_error("Value does not match!");
+  }
+}
+
+template <typename Allocator>
 typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
                                                              AccessMode mode) {
   auto findFn = [&]() {
@@ -408,12 +430,20 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
     // find from cache and wait for the result to be ready.
     auto it = cache_->findImpl(key, mode);
     it.wait();
+
+    if (valueValidatingEnabled()) {
+      XDCHECK(!consistencyCheckEnabled());
+      validateValue(it);
+    }
+
     return it;
   };
 
   if (!consistencyCheckEnabled()) {
     return findFn();
   }
+
+  XDCHECK(!valueValidatingEnabled());
 
   auto opId = valueTracker_->beginGet(key);
   auto it = findFn();
