@@ -331,11 +331,20 @@ template <typename Allocator>
 void Cache<Allocator>::enableConsistencyCheck(
     const std::vector<std::string>& keys) {
   XDCHECK(valueTracker_ == nullptr);
+  XDCHECK(!valueValidatingEnabled());
   valueTracker_ =
       std::make_unique<ValueTracker>(ValueTracker::wrapStrings(keys));
   for (const std::string& key : keys) {
     invalidKeys_[key] = false;
   }
+}
+
+template <typename Allocator>
+void Cache<Allocator>::enableValueValidating(
+    const std::string &expectedValue) {
+  XDCHECK(!valueValidatingEnabled());
+  XDCHECK(!consistencyCheckEnabled());
+  this->expectedValue_ = expectedValue;
 }
 
 template <typename Allocator>
@@ -431,19 +440,22 @@ typename Cache<Allocator>::WriteHandle Cache<Allocator>::insertOrReplace(
 }
 
 template <typename Allocator>
-void Cache<Allocator>::touchValue(const ReadHandle& it) const {
-  XDCHECK(touchValueEnabled());
+void Cache<Allocator>::validateValue(const ItemHandle &it) const {
+  XDCHECK(valueValidatingEnabled());
+
+  const auto &expected = expectedValue_.value();
 
   auto ptr = reinterpret_cast<const uint8_t*>(getMemory(it));
-
-  /* The accumulate call is intended to access all bytes of the value
-   * and nothing more. */
-  auto sum = std::accumulate(ptr, ptr + getSize(it), 0ULL);
-  folly::doNotOptimizeAway(sum);
+  auto cmp = std::memcmp(ptr, expected.data(), std::min<size_t>(expected.size(),
+    getSize(it)));
+  if (cmp != 0) {
+    throw std::runtime_error("Value does not match!");
+  }
 }
 
 template <typename Allocator>
-typename Cache<Allocator>::ReadHandle Cache<Allocator>::find(Key key) {
+typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
+                                                             AccessMode mode) {
   auto findFn = [&]() {
     util::LatencyTracker tracker;
     if (FLAGS_report_api_latency) {
@@ -461,8 +473,14 @@ typename Cache<Allocator>::ReadHandle Cache<Allocator>::find(Key key) {
   };
 
   if (!consistencyCheckEnabled()) {
-    return findFn();
+    auto it = findFn();
+    if (valueValidatingEnabled()) {
+      validateValue(it);
+    }
+    return it;
   }
+
+  XDCHECK(!valueValidatingEnabled());
 
   auto opId = valueTracker_->beginGet(key);
   auto it = findFn();

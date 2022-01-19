@@ -189,15 +189,12 @@ struct StressorConfig : public JSONConfig {
   uint64_t samplingIntervalMs{1000};
 
   // If enabled, stressor will verify operations' results are consistent.
+  // Mutually exclusive with validateValue
   bool checkConsistency{false};
 
-  // If enabled, stressor will check whether nvm cache has been warmed up and
-  // output stats after warmup.
-  bool checkNvmCacheWarmUp{false};
-
-  // If enabled, each value will be read on find. This is useful for measuring
-  // performance of value access.
-  bool touchValue{false};
+  // If enable, stressos will verify if value read is equal to value written.
+  // Mutually exclusive with checkConsistency
+  bool validateValue{false};
 
   uint64_t numOps{0};     // operation per thread
   uint64_t numThreads{0}; // number of threads that will run
