@@ -163,6 +163,9 @@ class Cache {
     return getSize(item.get());
   }
 
+  // checks if values stored in it matches expectedValue_.
+  void validateValue(const ItemHandle &it) const;
+
   // returns the size of the item, taking into account ItemRecords could be
   // enabled.
   uint32_t getSize(const Item* item) const noexcept;
@@ -220,8 +223,14 @@ class Cache {
   // @param keys  list of keys that the stressor uses for the workload.
   void enableConsistencyCheck(const std::vector<std::string>& keys);
 
+  // enables validating all values on find. Each value is compared to
+  // expected Value.
+  void enableValueValidating(const std::string &expectedValue);
+
   // returns true if the consistency checking is enabled.
   bool consistencyCheckEnabled() const { return valueTracker_ != nullptr; }
+
+  bool valueValidatingEnabled() const { return expectedValue_.has_value(); }
 
   // return true if the key was previously detected to be inconsistent. This
   // is useful only when consistency checking is enabled by calling
@@ -344,6 +353,9 @@ class Cache {
 
   // tracker for consistency monitoring.
   std::unique_ptr<ValueTracker> valueTracker_;
+
+  // exceptected value of all items in Cache.
+  std::optional<std::string> expectedValue_;
 
   // reading of the nand bytes written for the benchmark if enabled.
   const uint64_t nandBytesBegin_{0};

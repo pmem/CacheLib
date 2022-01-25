@@ -110,6 +110,9 @@ class CacheStressor : public Stressor {
     if (config_.checkConsistency) {
       cache_->enableConsistencyCheck(wg_->getAllKeys());
     }
+    if (config_.validateValue) {
+      cache_->enableValueValidating(hardcodedString_);
+    }
     if (config_.opRatePerSec > 0) {
       rateLimiter_ = std::make_unique<folly::BasicTokenBucket<>>(
           config_.opRatePerSec, config_.opRatePerSec);
