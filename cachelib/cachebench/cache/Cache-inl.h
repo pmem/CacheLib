@@ -465,8 +465,9 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
     auto it = cache_->find(key);
     it.wait();
 
-    if (touchValueEnabled()) {
-      touchValue(it);
+    if (valueValidatingEnabled()) {
+      XDCHECK(!consistencyCheckEnabled());
+      validateValue(it);
     }
 
     return it;
@@ -474,9 +475,6 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
 
   if (!consistencyCheckEnabled()) {
     auto it = findFn();
-    if (valueValidatingEnabled()) {
-      validateValue(it);
-    }
     return it;
   }
 
