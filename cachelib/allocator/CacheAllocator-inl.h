@@ -1246,7 +1246,7 @@ CacheAllocator<CacheTrait>::moveRegularItemOnEviction(
   // make sure that no other thread removed it, and only then replaces it.
   if (!replaceInMMContainer(oldItemPtr, *newItemHdl)) {
     accessContainer_->remove(*newItemHdl);
-    return {};
+    return acquire(&oldItem);
   }
 
   // Replacing into the MM container was successful, but someone could have
@@ -1254,27 +1254,9 @@ CacheAllocator<CacheTrait>::moveRegularItemOnEviction(
   // replaceInMMContainer() operation, which would invalidate newItemHdl.
   if (!newItemHdl->isAccessible()) {
     removeFromMMContainer(*newItemHdl);
-    return {};
+    return acquire(&oldItem);
   }
 
-  // no one can add or remove chained items at this point
-  if (oldItem.hasChainedItem()) {
-    // safe to acquire handle for a moving Item
-    auto oldHandle = acquire(&oldItem);
-    XDCHECK_EQ(1u, oldHandle->getRefCount()) << oldHandle->toString();
-    XDCHECK(!newItemHdl->hasChainedItem()) << newItemHdl->toString();
-    try {
-      auto l = chainedItemLocks_.lockExclusive(oldItem.getKey());
-      transferChainLocked(oldHandle, newItemHdl);
-    } catch (const std::exception& e) {
-      // this should never happen because we drained all the handles.
-      XLOGF(DFATAL, "{}", e.what());
-      throw;
-    }
-
-    XDCHECK(!oldItem.hasChainedItem());
-    XDCHECK(newItemHdl->hasChainedItem());
-  }
   newItemHdl.unmarkNascent();
   resHdl = std::move(newItemHdl); // guard will assign it to ctx under lock
   return acquire(&oldItem);
