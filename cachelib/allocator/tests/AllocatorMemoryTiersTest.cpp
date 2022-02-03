@@ -23,8 +23,12 @@ namespace tests {
 using LruAllocatorMemoryTiersTest = AllocatorMemoryTiersTest<LruAllocator>;
 
 // TODO(MEMORY_TIER): add more tests with different eviction policies
-TEST_F(LruAllocatorMemoryTiersTest, MultiTiers) { this->testMultiTiers(); }
 
+TEST_F(LruAllocatorMemoryTiersTest, MultiTiers) {
+    this->configCache();
+    this->populateCache();
+    ASSERT_TRUE(this->verifyCache());
+}
 } // end of namespace tests
 } // end of namespace cachelib
 } // end of namespace facebook
