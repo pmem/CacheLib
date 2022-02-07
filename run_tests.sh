@@ -2,6 +2,7 @@
 
 # Newline separated list of tests to ignore
 BLACKLIST="allocator-test-AllocationClassTest
+allocator-test-AllocatorTypeTest
 allocator-test-NvmCacheTests
 common-test-TimeTests
 common-test-UtilTests
