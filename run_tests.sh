@@ -13,3 +13,4 @@ if [ "$1" == "long" ]; then
 else
     find -type f \( -not -name "*bench*" -and -not -name "navy*" \) -executable | grep -vF "$BLACKLIST" | xargs -n1 bash -c
 fi
+./allocator-test-AllocatorTypeTest --gtest_filter=-*ChainedItemSerialization*:*RebalancingWithEvictions*
