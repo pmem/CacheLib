@@ -883,12 +883,6 @@ CacheAllocatorConfig<T>::getMemoryTierConfigs() const {
     sum_sizes += tier_config.getSize();
   }
 
-  if (size != sum_sizes) {
-    // Adjust capacity of the last tier to account for rounding error
-    config.back().setSize(
-      config.back().getSize() + (getCacheSize() - sum_sizes));
-  }
-
   return config;
 }
 
