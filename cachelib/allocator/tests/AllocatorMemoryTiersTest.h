@@ -47,9 +47,9 @@ class AllocatorMemoryTiersTest : public AllocatorTest<AllocatorT> {
 
   void destroyCache() { cache_.reset(); }
 
-  AllocatorT::ItemHandle get(AllocatorT::Key key) { return cache_->find(key); }
+  typename AllocatorT::ItemHandle get(AllocatorT::Key key) { return cache_->find(key); }
 
-  bool put(AllocatorT::Key key, const std::string& value) {
+  bool put(typename AllocatorT::Key key, const std::string& value) {
     auto handle = cache_->allocate(pool_, key, value.size());
     if (!handle) {
       return false; // cache may fail to evict due to too many pending writes
@@ -72,7 +72,7 @@ class AllocatorMemoryTiersTest : public AllocatorTest<AllocatorT> {
       if (item) {
         folly::StringPiece sp{reinterpret_cast<const char*>(item->getMemory()),
                               item->getSize()};
-        ASSERT_EQ(sp, value);
+        ASSERT_EQ(sp, value_);
       } else {
         return false;
       }
