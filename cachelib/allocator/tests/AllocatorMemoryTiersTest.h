@@ -72,7 +72,7 @@ class AllocatorMemoryTiersTest : public AllocatorTest<AllocatorT> {
       if (item) {
         folly::StringPiece sp{reinterpret_cast<const char*>(item->getMemory()),
                               item->getSize()};
-        ASSERT_EQ(sp, value_);
+        ASSERT_EQ(folly::cEscape<std::string>(sp), value_);
       } else {
         return false;
       }
