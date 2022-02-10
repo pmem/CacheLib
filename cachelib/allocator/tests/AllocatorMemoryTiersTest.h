@@ -47,7 +47,7 @@ class AllocatorMemoryTiersTest : public AllocatorTest<AllocatorT> {
 
   void destroyCache() { cache_.reset(); }
 
-  typename AllocatorT::ItemHandle get(AllocatorT::Key key) { return cache_->find(key); }
+  typename AllocatorT::ItemHandle get(typename AllocatorT::Key key) { return cache_->find(key); }
 
   bool put(typename AllocatorT::Key key, const std::string& value) {
     auto handle = cache_->allocate(pool_, key, value.size());
