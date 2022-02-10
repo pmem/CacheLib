@@ -1438,10 +1438,17 @@ CacheAllocator<CacheTrait>::findEviction(TierId tid, PoolId pid, ClassId cid) {
     // for chained items, the ownership of the parent can change. We try to
     // evict what we think as parent and see if the eviction of parent
     // recycles the child we intend to.
-    auto toReleaseHandle =
-        itr->isChainedItem()
-            ? advanceIteratorAndTryEvictChainedItem(tid, pid, itr)
-            : advanceIteratorAndTryEvictRegularItem(tid, pid, mmContainer, itr);
+    
+    ItemHandle toReleaseHandle = tryEvictToNextMemoryTier(tid, pid, itr);
+    bool movedToNextTier = false;
+    if(toReleaseHandle) {
+      movedToNextTier = true;
+    } else {
+      toReleaseHandle =
+          itr->isChainedItem()
+              ? advanceIteratorAndTryEvictChainedItem(tid, pid, itr)
+              : advanceIteratorAndTryEvictRegularItem(tid, pid, mmContainer, itr);
+    }
 
     if (toReleaseHandle) {
       if (toReleaseHandle->hasChainedItem()) {
@@ -1472,7 +1479,7 @@ CacheAllocator<CacheTrait>::findEviction(TierId tid, PoolId pid, ClassId cid) {
       // recycle the candidate.
       if (ReleaseRes::kRecycled ==
           releaseBackToAllocator(itemToRelease, RemoveContext::kEviction,
-                                 /* isNascent */ false, candidate)) {
+                                 /* isNascent */ movedToNextTier, candidate)) {
         return candidate;
       }
     }
@@ -1539,6 +1546,7 @@ template <typename ItemPtr>
 typename CacheAllocator<CacheTrait>::ItemHandle
 CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
     TierId tid, PoolId pid, ItemPtr& item) {
+  if(item->isChainedItem()) return {}; // TODO: We do not support ChainedItem yet
   if(item->isExpired()) return acquire(item);
 
   TierId nextTier = tid; // TODO - calculate this based on some admission policy
@@ -1572,9 +1580,6 @@ template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::ItemHandle
 CacheAllocator<CacheTrait>::advanceIteratorAndTryEvictRegularItem(
     TierId tid, PoolId pid, MMContainer& mmContainer, EvictionIterator& itr) {
-  auto evictHandle = tryEvictToNextMemoryTier(tid, pid, itr);
-  if(evictHandle) return evictHandle;
-
   Item& item = *itr;
 
   const bool evictToNvmCache = shouldWriteToNvmCache(item);
@@ -1593,7 +1598,7 @@ CacheAllocator<CacheTrait>::advanceIteratorAndTryEvictRegularItem(
   // if we remove the item from both access containers and mm containers
   // below, we will need a handle to ensure proper cleanup in case we end up
   // not evicting this item
-  evictHandle = accessContainer_->removeIf(item, &itemEvictionPredicate);
+  auto evictHandle = accessContainer_->removeIf(item, &itemEvictionPredicate);
 
   if (!evictHandle) {
     ++itr;
@@ -3605,7 +3610,10 @@ GlobalCacheStats CacheAllocator<CacheTrait>::getGlobalCacheStats() const {
 
 template <typename CacheTrait>
 CacheMemoryStats CacheAllocator<CacheTrait>::getCacheMemoryStats() const {
-  const auto totalCacheSize = allocator_[currentTier()]->getMemorySize();
+  size_t totalCacheSize = 0;
+  for(auto& allocator: allocator_) {
+    totalCacheSize += allocator->getMemorySize();
+  }
 
   auto addSize = [this](size_t a, PoolId pid) {
     return a + allocator_[currentTier()]->getPool(pid).getPoolSize();

@@ -460,14 +460,17 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
     // find from cache and wait for the result to be ready.
     auto it = cache_->find(key, mode);
     it.wait();
+
+    if (valueValidatingEnabled()) {
+      XDCHECK(!consistencyCheckEnabled());
+      validateValue(it);
+    }
+
     return it;
   };
 
   if (!consistencyCheckEnabled()) {
     auto it = findFn();
-    if (valueValidatingEnabled()) {
-      validateValue(it);
-    }
     return it;
   }
 
