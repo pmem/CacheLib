@@ -55,12 +55,14 @@ module.exports = {
           label: 'Cache memory management',
           collapsed: true,
           items: [
-            'Cache_Library_User_Guides/Item_and_ItemHandle',
+            'Cache_Library_User_Guides/Item_and_Handle',
             'Cache_Library_User_Guides/eviction_policy',
             'Cache_Library_User_Guides/Partition_cache_into_pools',
             'Cache_Library_User_Guides/Configure_HashTable',
+            'Cache_Library_User_Guides/Item_Destructor',
             'Cache_Library_User_Guides/Remove_callback',
             'Cache_Library_User_Guides/Cache_persistence',
+            'Cache_Library_User_Guides/Cross_Host_Cache_Persistence',
             'Cache_Library_User_Guides/ttl_reaper',
             'Cache_Library_User_Guides/oom_protection',
             'Cache_Library_User_Guides/pool_rebalance_strategy',
@@ -117,7 +119,36 @@ module.exports = {
        label: 'Architecture Guide',
        collapsed: false,
        items: [
-         'Cache_Library_Architecture_Guide/doc4',
+         {
+          type: 'category',
+          label: 'overview',
+          collapsed: true,
+          items: [
+            'Cache_Library_Architecture_Guide/common_components',
+            'Cache_Library_Architecture_Guide/overview_a_random_walk',
+          ]
+         },
+         {
+          type: 'category',
+          label: 'RAM Cache',
+          collapsed: true,
+          items: [
+            'Cache_Library_Architecture_Guide/ram_cache_indexing_and_eviction',
+            'Cache_Library_Architecture_Guide/slab_rebalancing',
+            'Cache_Library_Architecture_Guide/compact_cache_design',
+          ]
+         },
+         {
+          type: 'category',
+          label: 'Hybrid Cache',
+          collapsed: true,
+          items: [
+            'Cache_Library_Architecture_Guide/hybrid_cache',
+            'Cache_Library_Architecture_Guide/navy_architecture_overview',
+            'Cache_Library_Architecture_Guide/small_object_cache',
+            'Cache_Library_Architecture_Guide/large_object_cache',
+	  ]
+	 },
        ]
     }
   ],

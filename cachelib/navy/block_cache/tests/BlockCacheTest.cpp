@@ -21,6 +21,7 @@
 #include <future>
 #include <vector>
 
+#include "cachelib/allocator/nvmcache/NavyConfig.h"
 #include "cachelib/navy/block_cache/BlockCache.h"
 #include "cachelib/navy/block_cache/HitsReinsertionPolicy.h"
 #include "cachelib/navy/block_cache/tests/TestHelpers.h"
@@ -64,6 +65,13 @@ BlockCache::Config makeConfig(JobScheduler& scheduler,
   config.cacheSize = cacheSize;
   config.device = &device;
   config.evictionPolicy = std::move(policy);
+  return config;
+}
+
+BlockCacheReinsertionConfig makeHitsReinsertionConfig(
+    uint8_t hitsReinsertThreshold) {
+  BlockCacheReinsertionConfig config{};
+  config.enableHitsBased(hitsReinsertThreshold);
   return config;
 }
 
@@ -472,7 +480,7 @@ TEST(BlockCache, HoleStats) {
   auto ex = makeJobScheduler();
   auto config = makeConfig(*ex, std::move(policy), *device, {1024});
   // items which are accessed once will be reinserted on reclaim
-  config.reinsertionPolicy = std::make_unique<HitsReinsertionPolicy>(1);
+  config.reinsertionConfig = makeHitsReinsertionConfig(1);
   auto engine = makeEngine(std::move(config));
   auto driver = makeDriver(std::move(engine), std::move(ex));
 
@@ -560,7 +568,7 @@ TEST(BlockCache, ReclaimCorruption) {
   config.checksum = true;
   config.numInMemBuffers = 1;
   // items which are accessed once will be reinserted on reclaim
-  config.reinsertionPolicy = std::make_unique<HitsReinsertionPolicy>(1);
+  config.reinsertionConfig = makeHitsReinsertionConfig(1);
   auto engine = makeEngine(std::move(config));
   auto driver = makeDriver(std::move(engine), std::move(ex));
 
@@ -646,7 +654,7 @@ TEST(BlockCache, ReclaimCorruptionSizeClass) {
                            {1024} /* specify size class */);
   config.checksum = true;
   // items which are accessed once will be reinserted on reclaim
-  config.reinsertionPolicy = std::make_unique<HitsReinsertionPolicy>(1);
+  config.reinsertionConfig = makeHitsReinsertionConfig(1);
   auto engine = makeEngine(std::move(config));
   auto driver = makeDriver(std::move(engine), std::move(ex));
 
@@ -1311,12 +1319,10 @@ TEST(BlockCache, DestructorCallback) {
     // Region evictions is backwards to the order of insertion.
     EXPECT_CALL(cb,
                 call(log[7].key(), log[7].value(), DestructorEvent::Recycled));
-    EXPECT_CALL(cb,
-                call(log[6].key(), log[6].value(), DestructorEvent::Removed));
-    EXPECT_CALL(cb,
-                call(log[5].key(), log[5].value(), DestructorEvent::Removed));
-    EXPECT_CALL(cb,
-                call(log[4].key(), log[4].value(), DestructorEvent::Removed));
+    // destructor callback is executed when evicted or explicit removed
+    EXPECT_CALL(cb, call(log[6].key(), log[6].value(), _)).Times(0);
+    EXPECT_CALL(cb, call(log[5].key(), log[5].value(), _)).Times(0);
+    EXPECT_CALL(cb, call(log[4].key(), log[4].value(), _)).Times(0);
   }
 
   std::vector<uint32_t> hits(4);
@@ -1394,10 +1400,9 @@ TEST(BlockCache, StackAllocDestructorCallback) {
     // Region evictions is backwards to the order of insertion.
     EXPECT_CALL(cb,
                 call(log[4].key(), log[4].value(), DestructorEvent::Recycled));
-    EXPECT_CALL(cb,
-                call(log[3].key(), log[3].value(), DestructorEvent::Removed));
-    EXPECT_CALL(cb,
-                call(log[2].key(), log[2].value(), DestructorEvent::Removed));
+    // destructor callback is executed when evicted or explicit removed
+    EXPECT_CALL(cb, call(log[3].key(), log[3].value(), _)).Times(0);
+    EXPECT_CALL(cb, call(log[2].key(), log[2].value(), _)).Times(0);
   }
 
   std::vector<uint32_t> hits(4);
@@ -1467,10 +1472,9 @@ TEST(BlockCache, StackAllocDestructorCallbackInMemBuffers) {
     // Region evictions is backwards to the order of insertion.
     EXPECT_CALL(cb,
                 call(log[4].key(), log[4].value(), DestructorEvent::Recycled));
-    EXPECT_CALL(cb,
-                call(log[3].key(), log[3].value(), DestructorEvent::Removed));
-    EXPECT_CALL(cb,
-                call(log[2].key(), log[2].value(), DestructorEvent::Removed));
+    // destructor callback is executed when evicted or explicit removed
+    EXPECT_CALL(cb, call(log[3].key(), log[3].value(), _)).Times(0);
+    EXPECT_CALL(cb, call(log[2].key(), log[2].value(), _)).Times(0);
   }
 
   std::vector<uint32_t> hits(4);
@@ -1963,8 +1967,7 @@ TEST(BlockCache, PersistRecoverWithInMemBuffers) {
 
   int deviceSize = 16 * 1024 * 1024;
   int ioAlignSize = 4096;
-  int fd = open(filePath.c_str(), O_RDWR | O_CREAT);
-  folly::File f = folly::File(fd);
+  folly::File f = folly::File(filePath, O_RDWR | O_CREAT, S_IRWXU);
   auto device = createDirectIoFileDevice(std::move(f), deviceSize, ioAlignSize,
                                          nullptr, 0);
 
@@ -1992,8 +1995,7 @@ TEST(BlockCache, PersistRecoverWithInMemBuffers) {
 
   driver->persist();
 
-  int newFd = open(filePath.c_str(), O_RDWR | O_CREAT);
-  folly::File newF = folly::File(newFd);
+  folly::File newF = folly::File(filePath, O_RDWR | O_CREAT, S_IRWXU);
   auto newDevice = createDirectIoFileDevice(std::move(newF), deviceSize,
                                             ioAlignSize, nullptr, 0);
   auto newPolicy = std::make_unique<NiceMock<MockPolicy>>(&hits);
@@ -2242,7 +2244,7 @@ TEST(BlockCache, HitsReinsertionPolicy) {
   auto device = createMemoryDevice(kDeviceSize, nullptr /* encryption */);
   auto ex = makeJobScheduler();
   auto config = makeConfig(*ex, std::move(policy), *device, {4096});
-  config.reinsertionPolicy = std::make_unique<HitsReinsertionPolicy>(1);
+  config.reinsertionConfig = makeHitsReinsertionConfig(1);
   auto engine = makeEngine(std::move(config));
   auto driver = makeDriver(std::move(engine), std::move(ex));
 
@@ -2312,7 +2314,7 @@ TEST(BlockCache, HitsReinsertionPolicyRecovery) {
   auto device = createMemoryDevice(deviceSize, nullptr /* encryption */);
   auto ex = makeJobScheduler();
   auto config = makeConfig(*ex, std::move(policy), *device, {4096, 8192});
-  config.reinsertionPolicy = std::make_unique<HitsReinsertionPolicy>(1);
+  config.reinsertionConfig = makeHitsReinsertionConfig(1);
   auto engine = makeEngine(std::move(config), metadataSize);
   auto driver = makeDriver(std::move(engine), std::move(ex), std::move(device),
                            metadataSize);
@@ -2349,7 +2351,7 @@ TEST(BlockCache, UsePriorities) {
   auto config =
       makeConfig(*ex, std::move(policy), *device, {}, kRegionSize * 6);
   config.numPriorities = 3;
-  config.reinsertionPolicy = std::make_unique<HitsReinsertionPolicy>(1);
+  config.reinsertionConfig = makeHitsReinsertionConfig(1);
   // Enable in-mem buffer so size align on 512 bytes boundary
   config.numInMemBuffers = 3;
   config.cleanRegionsPool = 3;
@@ -2406,7 +2408,7 @@ TEST(BlockCache, UsePrioritiesSizeClass) {
   auto config = makeConfig(*ex, std::move(policy), *device, {2048, 4096},
                            kRegionSize * 6);
   config.numPriorities = 3;
-  config.reinsertionPolicy = std::make_unique<HitsReinsertionPolicy>(1);
+  config.reinsertionConfig = makeHitsReinsertionConfig(1);
   // Enable in-mem buffer so size align on 512 bytes boundary
   config.numInMemBuffers = 3;
   config.cleanRegionsPool = 3;
@@ -2519,6 +2521,93 @@ TEST(BlockCache, DeviceFlushFailureAsync) {
       EXPECT_EQ(2, count);
     }
   });
+}
+
+TEST(BlockCache, testItemDestructor) {
+  std::vector<CacheEntry> log;
+  {
+    BufferGen bg;
+    // 1st region, 12k
+    log.emplace_back(Buffer{makeView("key_000")}, bg.gen(5'000));
+    log.emplace_back(Buffer{makeView("key_001")}, bg.gen(7'000));
+    // 2nd region, 14k
+    log.emplace_back(Buffer{makeView("key_002")}, bg.gen(5'000));
+    log.emplace_back(Buffer{makeView("key_003")}, bg.gen(3'000));
+    log.emplace_back(Buffer{makeView("key_004")}, bg.gen(6'000));
+    // 3rd region, 16k, overwrites
+    log.emplace_back(Buffer{log[0].key()}, bg.gen(8'000));
+    log.emplace_back(Buffer{log[3].key()}, bg.gen(8'000));
+    // 4th region, 15k
+    log.emplace_back(Buffer{makeView("key_007")}, bg.gen(9'000));
+    log.emplace_back(Buffer{makeView("key_008")}, bg.gen(6'000));
+    ASSERT_EQ(9, log.size());
+  }
+
+  MockDestructor cb;
+  ON_CALL(cb, call(_, _, _))
+      .WillByDefault(
+          Invoke([](BufferView key, BufferView val, DestructorEvent event) {
+            XLOGF(ERR, "cb key: {}, val: {}, event: {}", toString(key),
+                  toString(val).substr(0, 20), toString(event));
+          }));
+
+  {
+    testing::InSequence inSeq;
+    // explicit remove 2
+    EXPECT_CALL(cb,
+                call(log[2].key(), log[2].value(), DestructorEvent::Removed));
+    // explicit remove 0
+    EXPECT_CALL(cb,
+                call(log[0].key(), log[5].value(), DestructorEvent::Removed));
+    // Region evictions is backwards to the order of insertion.
+    EXPECT_CALL(cb,
+                call(log[4].key(), log[4].value(), DestructorEvent::Recycled));
+    EXPECT_CALL(cb, call(log[3].key(), log[3].value(), _)).Times(0);
+    EXPECT_CALL(cb, call(log[2].key(), log[2].value(), _)).Times(0);
+  }
+
+  std::vector<uint32_t> hits(4);
+  auto policy = std::make_unique<NiceMock<MockPolicy>>(&hits);
+  auto& mp = *policy;
+  auto device = createMemoryDevice(kDeviceSize, nullptr /* encryption */);
+  auto ex = makeJobScheduler();
+  auto* exPtr = ex.get();
+  auto config = makeConfig(*ex, std::move(policy), *device, {});
+  config.numInMemBuffers = 9;
+  config.destructorCb = toCallback(cb);
+  config.itemDestructorEnabled = true;
+  auto engine = makeEngine(std::move(config));
+  auto driver = makeDriver(std::move(engine), std::move(ex));
+
+  mockRegionsEvicted(mp, {0, 1, 2, 3, 1});
+  for (size_t i = 0; i < 7; i++) {
+    XLOG(ERR, "insert ") << toString(log[i].key());
+    EXPECT_EQ(Status::Ok, driver->insert(log[i].key(), log[i].value()));
+  }
+
+  // remove with cb triggers destructor Immediately
+  XLOG(ERR, "remove ") << toString(log[2].key());
+  EXPECT_EQ(Status::Ok, driver->remove(log[2].key()));
+
+  // remove with cb triggers destructor Immediately
+  XLOG(ERR, "remove ") << toString(log[0].key());
+  EXPECT_EQ(Status::Ok, driver->remove(log[0].key()));
+
+  // remove again
+  EXPECT_EQ(Status::NotFound, driver->remove(log[2].key()));
+  EXPECT_EQ(Status::NotFound, driver->remove(log[0].key()));
+
+  XLOG(ERR, "insert ") << toString(log[7].key());
+  EXPECT_EQ(Status::Ok, driver->insert(log[7].key(), log[7].value()));
+  // insert will trigger evictions
+  XLOG(ERR, "insert ") << toString(log[8].key());
+  EXPECT_EQ(Status::Ok, driver->insert(log[8].key(), log[8].value()));
+
+  Buffer value;
+  EXPECT_EQ(Status::NotFound, driver->lookup(log[0].key(), value));
+  EXPECT_EQ(Status::NotFound, driver->lookup(log[5].key(), value));
+
+  exPtr->finish();
 }
 } // namespace tests
 } // namespace navy

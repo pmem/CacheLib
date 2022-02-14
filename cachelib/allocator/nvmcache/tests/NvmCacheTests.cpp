@@ -17,6 +17,7 @@
 #include <folly/Random.h>
 #include <gtest/gtest.h>
 
+#include <climits>
 #include <set>
 #include <thread>
 
@@ -31,7 +32,8 @@ std::string genRandomStr(size_t len) {
   std::string text;
   text.reserve(len);
   for (unsigned int i = 0; i < len; i++) {
-    text += static_cast<char>(folly::Random::rand32());
+    // avoid char 0 in string
+    text += static_cast<char>(folly::Random::rand32() % UCHAR_MAX + 1);
   }
   return text;
 }
@@ -534,7 +536,7 @@ TEST_F(NvmCacheTest, InspectCache) {
     auto it = cache.allocate(pid, key, val.length());
     ASSERT_NE(nullptr, it);
     cache.insertOrReplace(it);
-    ::memcpy(it->getWritableMemory(), val.data(), val.length());
+    ::memcpy(it->getMemory(), val.data(), val.length());
   }
 
   // item is only in RAM
@@ -590,11 +592,11 @@ TEST_F(NvmCacheTest, InspectCacheLarge) {
     auto it = cache.allocate(pid, key, val.length());
     ASSERT_NE(nullptr, it);
     cache.insertOrReplace(it);
-    ::memcpy(it->getWritableMemory(), val.data(), val.length());
+    ::memcpy(it->getMemory(), val.data(), val.length());
     for (int i = 0; i < nChained; i++) {
       auto chainedIt = cache.allocateChainedItem(it, val.length());
       ASSERT_TRUE(chainedIt);
-      ::memcpy(chainedIt->getWritableMemory(), val.data(), val.length());
+      ::memcpy(chainedIt->getMemory(), val.data(), val.length());
       cache.addChainedItem(it, std::move(chainedIt));
     }
   }
@@ -865,7 +867,7 @@ TEST_F(NvmCacheTest, EvictSlabRelease) {
     auto handle = cache.allocate(pid, key, size);
     cache.insertOrReplace(handle);
     if (handle) {
-      std::memcpy(handle->getWritableMemory(), val.data(), val.size());
+      std::memcpy(handle->getMemory(), val.data(), val.size());
       keys.push_back(std::move(key));
     }
   }
@@ -1104,9 +1106,9 @@ TEST_F(NvmCacheTest, ChainedItemsModifyAccessible) {
 
     // Read everything again
     {
-      auto hdl = this->fetch(key, false /* ramOnly*/);
+      auto hdl = this->fetchToWrite(key, false /* ramOnly*/);
       hdl.wait();
-      ASSERT_TRUE(hdl->isNvmClean());
+      ASSERT_FALSE(hdl->isNvmClean());
 
       vals.pop_back();
       auto newItemHandle =
@@ -1116,7 +1118,7 @@ TEST_F(NvmCacheTest, ChainedItemsModifyAccessible) {
 
       {
         auto* firstChainedItem =
-            cache.viewAsChainedAllocs(hdl).getNthInChain(0);
+            cache.viewAsWritableChainedAllocs(hdl).getNthInChain(0);
         Item& oldItem = *firstChainedItem;
         auto oldHandle =
             cache.replaceChainedItem(oldItem, std::move(newItemHandle), *hdl);
@@ -1150,7 +1152,7 @@ TEST_F(NvmCacheTest, EncodeDecode) {
           return false;
         }
 
-        for (Item& item : ctx.chainedItemRange) {
+        for (const Item& item : ctx.chainedItemRange) {
           (void)item;
           ++cnt;
         }
@@ -1162,7 +1164,7 @@ TEST_F(NvmCacheTest, EncodeDecode) {
         auto& cnt = callbacks[it.getKey().str()];
         --cnt;
 
-        for (Item& item : ctx.chainedItemRange) {
+        for (const Item& item : ctx.chainedItemRange) {
           (void)item;
           --cnt;
         }
@@ -1517,6 +1519,7 @@ TEST_F(NvmCacheTest, NavyStats) {
   EXPECT_TRUE(cs("navy_bc_reinsertions"));
   EXPECT_TRUE(cs("navy_bc_reinsertion_bytes"));
   EXPECT_TRUE(cs("navy_bc_reinsertion_errors"));
+  EXPECT_TRUE(cs("navy_bc_lookup_for_item_destructor_errors"));
   EXPECT_TRUE(cs("navy_bc_reclaim_entry_header_checksum_errors"));
   EXPECT_TRUE(cs("navy_bc_reclaim_value_checksum_errors"));
   EXPECT_TRUE(cs("navy_bc_cleanup_entry_header_checksum_errors"));
@@ -1650,6 +1653,9 @@ TEST_F(NvmCacheTest, NavyStats) {
   EXPECT_TRUE(cs("navy_device_encryption_errors"));
   EXPECT_TRUE(cs("navy_device_decryption_errors"));
   EXPECT_TRUE(cs("navy_device_write_latency_us_max"));
+
+  // item destructor
+  EXPECT_TRUE(cs("items_tracked_for_destructor"));
 
   // there should be no additional stats
   if (nvmStats.size()) {
@@ -1942,6 +1948,488 @@ TEST_F(NvmCacheTest, Raid0SizeChange) {
 TEST_F(NvmCacheTest, ShardHashIsNotFillMapHash) {
   auto const shardHash = getNvmShardAndHashForKey("hello world");
   ASSERT_NE(shardHash.first, shardHash.second);
+}
+
+TEST_F(NvmCacheTest, testEvictCB) {
+  bool destructorCalled = false;
+  DestructorContext context;
+  PoolId poolid;
+  // this test only checks whether the destructor is triggered, but not checking
+  // the DestructedData
+  allocConfig_.setRemoveCallback({});
+  allocConfig_.setItemDestructor([&](const DestructorData& data) {
+    destructorCalled = true;
+    context = data.context;
+    poolid = data.pool;
+  });
+  auto& cache = makeCache();
+  auto pid = poolId();
+
+  // 1. Recycled event and item not in RAM, destructor should be triggered
+  {
+    destructorCalled = false;
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(10);
+    auto handle = cache.allocate(pid, key, 100);
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+    auto buf = toIOBuf(makeNvmItem(handle));
+    evictCB(navy::makeView(key.data()),
+            navy::BufferView(buf.length(), buf.data()),
+            navy::DestructorEvent::Recycled);
+    ASSERT_TRUE(destructorCalled);
+    ASSERT_EQ(DestructorContext::kEvictedFromNVM, context);
+    ASSERT_EQ(poolid, pid);
+  }
+  // 2. Recycled event and item in RAM but unclean, destructor should be
+  // triggered
+  {
+    destructorCalled = false;
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(10);
+    // a new pool
+    auto newPool = cache_->addPool("test", poolSize_, poolAllocsizes_);
+
+    auto handle = cache.allocate(newPool, key, 100);
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+    cache.insertOrReplace(handle);
+    auto buf = toIOBuf(makeNvmItem(handle));
+    evictCB(navy::makeView(key.data()),
+            navy::BufferView(buf.length(), buf.data()),
+            navy::DestructorEvent::Recycled);
+    ASSERT_TRUE(destructorCalled);
+    ASSERT_FALSE(handle->isNvmEvicted());
+    ASSERT_EQ(DestructorContext::kEvictedFromNVM, context);
+    ASSERT_EQ(poolid, newPool);
+  }
+  // 3. Recycled event and item in RAM and clean, destructor should be skipped
+  {
+    destructorCalled = false;
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(10);
+    auto handle = cache.allocate(pid, key, 100);
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+    cache.insertOrReplace(handle);
+    handle->markNvmClean();
+    auto buf = toIOBuf(makeNvmItem(handle));
+    evictCB(navy::makeView(key.data()),
+            navy::BufferView(buf.length(), buf.data()),
+            navy::DestructorEvent::Recycled);
+    // Recycled event, in RAM and clean
+    ASSERT_FALSE(destructorCalled);
+    ASSERT_TRUE(handle->isNvmEvicted());
+  }
+  // 4. Removed event and item not in RAM, destructor should be triggered
+  {
+    destructorCalled = false;
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(10);
+    auto handle = cache.allocate(pid, key, 100);
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+    auto buf = toIOBuf(makeNvmItem(handle));
+    evictCB(navy::makeView(key.data()),
+            navy::BufferView(buf.length(), buf.data()),
+            navy::DestructorEvent::Removed);
+    // Removed event, not in RAM
+    ASSERT_TRUE(destructorCalled);
+    ASSERT_EQ(DestructorContext::kRemovedFromNVM, context);
+    ASSERT_EQ(poolid, pid);
+  }
+  // 5. Removed event and item in RAM but unclean, destructor should be
+  // triggered
+  {
+    destructorCalled = false;
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(10);
+    auto handle = cache.allocate(pid, key, 100);
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+    cache.insertOrReplace(handle);
+    auto buf = toIOBuf(makeNvmItem(handle));
+    evictCB(navy::makeView(key.data()),
+            navy::BufferView(buf.length(), buf.data()),
+            navy::DestructorEvent::Removed);
+    // Removed event, in RAM but unclean
+    ASSERT_TRUE(destructorCalled);
+    ASSERT_EQ(DestructorContext::kRemovedFromNVM, context);
+  }
+  // 6. Removed event and item in RAM and clean, destructor should be
+  // skipped
+  {
+    destructorCalled = false;
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(10);
+    auto handle = cache.allocate(pid, key, 100);
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+    cache.insertOrReplace(handle);
+    handle->markNvmClean();
+    auto buf = toIOBuf(makeNvmItem(handle));
+    evictCB(navy::makeView(key.data()),
+            navy::BufferView(buf.length(), buf.data()),
+            navy::DestructorEvent::Removed);
+    // Removed event, in RAM and clean
+    ASSERT_FALSE(destructorCalled);
+    ASSERT_TRUE(handle->isNvmEvicted());
+  }
+}
+
+void verifyItem(const Item& item, const Item& iobufItem) {
+  ASSERT_EQ(item.isChainedItem(), iobufItem.isChainedItem());
+  ASSERT_EQ(item.hasChainedItem(), iobufItem.hasChainedItem());
+  ASSERT_EQ(item.getCreationTime(), iobufItem.getCreationTime());
+  ASSERT_EQ(item.getExpiryTime(), iobufItem.getExpiryTime());
+  ASSERT_EQ(item.getSize(), iobufItem.getSize());
+  ASSERT_EQ(
+      0, std::memcmp(item.getMemory(), iobufItem.getMemory(), item.getSize()));
+  // iobuf item is prepared for ItemDestructor, accessible should be false
+  ASSERT_FALSE(iobufItem.isAccessible());
+}
+
+void NvmCacheTest::verifyItemInIOBuf(const std::string& key,
+                                     const ItemHandle& handle,
+                                     folly::IOBuf* iobuf) {
+  Item& item = *reinterpret_cast<Item*>(iobuf->writableData());
+  ASSERT_EQ(Item::getRequiredSize(key, handle->getSize()), iobuf->length());
+
+  ASSERT_EQ(true, item.isNvmClean());
+  ASSERT_EQ(true, item.isNvmEvicted());
+  ASSERT_EQ(0, item.getRefCount());
+  ASSERT_EQ(handle->getKey(), item.getKey());
+  verifyItem(*handle, item);
+
+  if (item.hasChainedItem()) {
+    auto iobufRange = viewAsChainedAllocsRange(iobuf);
+    auto handleRange = cache().viewAsChainedAllocsRange(*handle);
+
+    auto iobufIter = iobufRange.begin();
+    auto handleIter = handleRange.begin();
+
+    while (iobufIter != iobufRange.end() || handleIter != handleRange.end()) {
+      ASSERT_NE(iobufIter, iobufRange.end());
+      ASSERT_NE(handleIter, handleRange.end());
+      verifyItem(handleIter.dereference(), iobufIter.dereference());
+      handleIter.increment();
+      iobufIter.increment();
+    }
+  }
+}
+
+TEST_F(NvmCacheTest, testCreateItemAsIOBuf) {
+  auto& cache = this->cache();
+  auto pid = this->poolId();
+
+  {
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(10);
+    auto handle = cache.allocate(pid, key, 100);
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+
+    auto dipper = makeNvmItem(handle);
+    auto iobuf = createItemAsIOBuf(key, *dipper);
+
+    verifyItemInIOBuf(key, handle, iobuf.get());
+  }
+  {
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(100);
+    auto handle = cache.allocate(pid, key, 1000);
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+
+    auto dipper = makeNvmItem(handle);
+    auto iobuf = createItemAsIOBuf(key, *dipper);
+
+    verifyItemInIOBuf(key, handle, iobuf.get());
+  }
+}
+
+TEST_F(NvmCacheTest, testCreateItemAsIOBufChained) {
+  auto& cache = this->cache();
+  auto pid = this->poolId();
+
+  {
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(10);
+    int nChained = 10;
+
+    auto handle = cache.allocate(pid, key, 100);
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+    cache.insertOrReplace(handle);
+
+    for (int i = 0; i < nChained; i++) {
+      std::string chainedVal = val + "_chained_" + std::to_string(i);
+      auto chainedIt = cache.allocateChainedItem(handle, chainedVal.length());
+      ASSERT_TRUE(chainedIt);
+      ::memcpy(chainedIt->getMemory(), chainedVal.data(), chainedVal.length());
+      cache.addChainedItem(handle, std::move(chainedIt));
+    }
+
+    auto dipper = makeNvmItem(handle);
+    auto iobuf = createItemAsIOBuf(key, *dipper);
+
+    verifyItemInIOBuf(key, handle, iobuf.get());
+  }
+}
+
+TEST_F(NvmCacheTest, testItemDestructor) {
+  uint32_t destructorCount = 0;
+  std::unordered_set<std::pair<std::string, std::string>> destructedItems;
+  getConfig().setRemoveCallback({});
+  getConfig().setItemDestructor([&](const DestructedData& data) {
+    ++destructorCount;
+    std::string val =
+        std::string(reinterpret_cast<const char*>(data.item.getMemory()),
+                    data.item.getSize());
+    for (auto& chained : data.chainedAllocs) {
+      val += std::string(reinterpret_cast<const char*>(chained.getMemory()),
+                         chained.getSize());
+    }
+    destructedItems.insert(std::make_pair(data.item.getKey().toString(), val));
+  });
+  auto& cache = makeCache();
+  auto pid = this->poolId();
+
+  // 1. remove the item that is in NVM only
+  {
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(10);
+    int nChained = 10;
+    std::string combinedVal = val;
+
+    auto handle = cache.allocate(pid, key, val.size());
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+
+    for (int i = 0; i < nChained; i++) {
+      std::string chainedVal = val + "_chained_" + std::to_string(i);
+      auto chainedIt = cache.allocateChainedItem(handle, chainedVal.length());
+      ASSERT_TRUE(chainedIt);
+      ::memcpy(chainedIt->getMemory(), chainedVal.data(), chainedVal.length());
+      cache.addChainedItem(handle, std::move(chainedIt));
+    }
+
+    cache.insertOrReplace(handle);
+    pushToNvmCacheFromRamForTesting(key);
+    removeFromRamForTesting(key);
+    handle.reset();
+    // manual remove will trigger destructor
+    destructorCount = 0;
+    destructedItems.clear();
+
+    {
+      auto res = this->inspectCache(key);
+      // must not exist in RAM
+      ASSERT_EQ(nullptr, res.first);
+
+      // must be in nvmcache
+      ASSERT_NE(nullptr, res.second);
+    }
+
+    cache.remove(key);
+    // wait for async remove finish
+    cache.flushNvmCache();
+
+    ASSERT_EQ(1, destructorCount);
+    auto it = destructedItems.begin();
+    ASSERT_EQ(key, it->first);
+
+    // chained items are in reversed order
+    for (int i = nChained - 1; i >= 0; --i) {
+      combinedVal += val + "_chained_" + std::to_string(i);
+    }
+    ASSERT_EQ(combinedVal, it->second);
+  }
+
+  // 2. remove the item that is in both RAM and NVM
+  {
+    destructorCount = 0;
+    destructedItems.clear();
+
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(200);
+
+    auto handle = cache.allocate(pid, key, val.size());
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+
+    cache.insertOrReplace(handle);
+    pushToNvmCacheFromRamForTesting(key);
+
+    {
+      auto res = this->inspectCache(key);
+      // in both RAM and nvmcache
+      ASSERT_NE(nullptr, res.first);
+      ASSERT_NE(nullptr, res.second);
+    }
+
+    cache.invalidateNvm(*handle);
+    // wait for async remove finish
+    cache.flushNvmCache();
+
+    ASSERT_EQ(0, destructorCount);
+    ASSERT_TRUE(destructedItems.empty());
+    ASSERT_FALSE(handle->isNvmEvicted());
+  }
+
+  // 3. remove the item that is in both RAM and NVM,
+  // but the RAM handle is hold by user
+  // destruct should be triggered until handle is released
+  {
+    destructorCount = 0;
+    destructedItems.clear();
+
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(20);
+
+    auto handle = cache.allocate(pid, key, val.size());
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+
+    cache.insertOrReplace(handle);
+    pushToNvmCacheFromRamForTesting(key);
+
+    {
+      auto res = this->inspectCache(key);
+      // in both RAM and nvmcache
+      ASSERT_NE(nullptr, res.first);
+      ASSERT_NE(nullptr, res.second);
+    }
+
+    cache.remove(key);
+    // wait for async remove finish
+    cache.flushNvmCache();
+
+    // handle is still being hold
+    ASSERT_EQ(0, destructorCount);
+    ASSERT_TRUE(handle->isNvmClean());
+
+    handle.reset();
+    ASSERT_EQ(1, destructorCount);
+  }
+
+  // 4. remove the item that is in both RAM and NVM,
+  // but RAM copy is replaced by a new item.
+  {
+    destructorCount = 0;
+    destructedItems.clear();
+
+    std::string key = "key" + genRandomStr(10);
+    std::string val = "val" + genRandomStr(20);
+
+    auto handle = cache.allocate(pid, key, val.size());
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val.data(), val.size());
+
+    cache.insertOrReplace(handle);
+    pushToNvmCacheFromRamForTesting(key);
+
+    // replace with new val
+    auto val2 = "val" + genRandomStr(25);
+    handle = cache.allocate(pid, key, val2.size());
+    ASSERT_NE(nullptr, handle.get());
+    std::memcpy(handle->getMemory(), val2.data(), val2.size());
+    cache.insertOrReplace(handle);
+
+    // wait for async remove finish
+    cache.flushNvmCache();
+
+    ASSERT_EQ(1, destructorCount);
+    ASSERT_FALSE(handle->isNvmEvicted());
+    ASSERT_FALSE(handle->isNvmClean());
+
+    auto it = destructedItems.begin();
+    ASSERT_EQ(key, it->first);
+    ASSERT_EQ(val, it->second);
+  }
+}
+
+TEST_F(NvmCacheTest, testItemDestructorPutFail) {
+  auto& config = getConfig();
+  auto& navyConfig = config.nvmConfig->navyConfig;
+  navyConfig.blockCache().setRegionSize(1024);
+
+  int destructorCount = 0;
+  std::string destructoredKey;
+  config.setRemoveCallback({});
+  config.setItemDestructor([&](const DestructedData& data) {
+    ++destructorCount;
+    destructoredKey = data.item.getKey();
+  });
+
+  auto& cache = makeCache();
+  auto pid = poolId();
+
+  std::string key = "key" + genRandomStr(10);
+  {
+    // val size larger than BlockCacheRegionSize
+    auto handle = cache.allocate(pid, key, 10000);
+    ASSERT_NE(nullptr, handle.get());
+    cache.insertOrReplace(handle);
+    // NVM::put will fail
+    pushToNvmCacheFromRamForTesting(key);
+    ASSERT_TRUE(handle->isNvmClean());
+    ASSERT_FALSE(handle->isNvmEvicted());
+    removeFromRamForTesting(key);
+  }
+  // wait for async insert finish
+  cache.flushNvmCache();
+  // expecting two destructor count because
+  // we manually push item to nvm without evicting
+  // and remove it, both PutFail and RAM removal
+  // will trigger destructor
+  ASSERT_EQ(2, destructorCount);
+  ASSERT_EQ(key, destructoredKey);
+}
+
+TEST_F(NvmCacheTest, testFindToWriteNvmInvalidation) {
+  uint32_t destructorCount = 0;
+  std::unordered_set<std::pair<std::string, std::string>> destructedItems;
+  getConfig().setRemoveCallback({});
+  getConfig().setItemDestructor([&](const DestructedData& data) {
+    ++destructorCount;
+    std::string val =
+        std::string(reinterpret_cast<const char*>(data.item.getMemory()),
+                    data.item.getSize());
+    for (auto& chained : data.chainedAllocs) {
+      val += std::string(reinterpret_cast<const char*>(chained.getMemory()),
+                         chained.getSize());
+    }
+    destructedItems.insert(std::make_pair(data.item.getKey().toString(), val));
+  });
+  auto& cache = makeCache();
+  auto pid = this->poolId();
+  std::string key = "key" + genRandomStr(10);
+  std::string val = "val" + genRandomStr(200);
+
+  auto handle = cache.allocate(pid, key, val.size());
+  ASSERT_NE(nullptr, handle.get());
+  std::memcpy(handle->getMemory(), val.data(), val.size());
+
+  cache.insertOrReplace(handle);
+  pushToNvmCacheFromRamForTesting(key);
+
+  {
+    auto res = this->inspectCache(key);
+    // in both RAM and nvmcache
+    ASSERT_NE(nullptr, res.first);
+    ASSERT_NE(nullptr, res.second);
+  }
+
+  handle = cache.findToWrite(key);
+  // wait for async remove finish
+  cache.flushNvmCache();
+
+  ASSERT_NE(nullptr, handle.get());
+  ASSERT_EQ(0, destructorCount);
+  ASSERT_TRUE(destructedItems.empty());
+  ASSERT_FALSE(handle->isNvmEvicted());
+  ASSERT_FALSE(handle->isNvmClean());
 }
 
 } // namespace tests

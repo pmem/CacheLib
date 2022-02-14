@@ -87,7 +87,7 @@ class PersistenceCache {
       auto& val = items[i].second;
       auto handle = cache.allocate(pool, key, val.size());
       EXPECT_NE(handle, nullptr);
-      std::memcpy(handle->getWritableMemory(), val.data(), val.size());
+      std::memcpy(handle->getMemory(), val.data(), val.size());
 
       for (uint32_t j = 0; j < numChained; ++j) {
         std::string chainedData = folly::sformat("{}_Chained_{}", val, j);
@@ -148,8 +148,9 @@ class PersistenceCache {
     for (auto& key : items) {
       auto handle = cache.find(key.first);
       if (handle) {
-        auto data = std::string(reinterpret_cast<char*>(handle->getMemory()),
-                                handle->getSize());
+        auto data =
+            std::string(reinterpret_cast<const char*>(handle->getMemory()),
+                        handle->getSize());
         ASSERT_EQ(data, key.second);
         if (numChained > 0) {
           auto chained_allocs = cache.viewAsChainedAllocs(handle);
@@ -157,9 +158,9 @@ class PersistenceCache {
           for (uint32_t j = 0; j < numChained; ++j) {
             auto chained_item =
                 chained_allocs.getNthInChain(numChained - j - 1);
-            auto chained_data =
-                std::string(reinterpret_cast<char*>(chained_item->getMemory()),
-                            chained_item->getSize());
+            auto chained_data = std::string(
+                reinterpret_cast<const char*>(chained_item->getMemory()),
+                chained_item->getSize());
             ASSERT_EQ(chained_data,
                       folly::sformat("{}_Chained_{}", key.second, j));
           }

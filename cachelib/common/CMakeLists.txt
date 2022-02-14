@@ -21,15 +21,11 @@ add_library (cachelib_common
   CountDownLatch.cpp
   ${BLOOM_THRIFT_FILES}
   hothash/HotHashDetector.cpp
-  hothash/HotHashDetectorTest.cpp
   PercentileStats.cpp
   PeriodicWorker.cpp
   piecewise/GenericPieces.cpp
-  piecewise/GenericPiecesTest.cpp
   piecewise/RequestRange.cpp
-  piecewise/RequestRangeTest.cpp
   Serialization.cpp
-  TestUtils.cpp
   Utils.cpp
 )
 add_dependencies(cachelib_common thrift_generated_files)
@@ -58,6 +54,11 @@ if (BUILD_TESTS)
     GTest::gtest
     GTest::gtest_main
   )
+  target_sources(common_test_support INTERFACE
+    TestUtils.cpp
+    hothash/HotHashDetectorTest.cpp
+    piecewise/GenericPiecesTest.cpp
+    piecewise/RequestRangeTest.cpp)
 
   function (ADD_TEST SOURCE_FILE)
      # Add any additional libraries BEFORE the "common_test_support" to ensure
@@ -84,5 +85,4 @@ if (BUILD_TESTS)
   add_test (tests/UtilTests.cpp)
   add_test (tests/CountDownLatchTest.cpp)
   add_test (tests/UtilTestsRSS.cpp)
-  add_test (tests/TimeTests.cpp)
 endif()

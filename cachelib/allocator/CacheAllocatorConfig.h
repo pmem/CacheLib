@@ -45,6 +45,7 @@ class CacheAllocatorConfig {
   using AccessConfig = typename CacheT::AccessConfig;
   using ChainedItemMovingSync = typename CacheT::ChainedItemMovingSync;
   using RemoveCb = typename CacheT::RemoveCb;
+  using ItemDestructor = typename CacheT::ItemDestructor;
   using NvmCacheEncodeCb = typename CacheT::NvmCacheT::EncodeCB;
   using NvmCacheDecodeCb = typename CacheT::NvmCacheT::DecodeCB;
   using NvmCacheDeviceEncryptor = typename CacheT::NvmCacheT::DeviceEncryptor;
@@ -83,8 +84,12 @@ class CacheAllocatorConfig {
   CacheAllocatorConfig& setAccessConfig(size_t numEntries);
 
   // RemoveCallback is invoked for each item that is evicted or removed
-  // explicitly
+  // explicitly from RAM
   CacheAllocatorConfig& setRemoveCallback(RemoveCb cb);
+
+  // ItemDestructor is invoked for each item that is evicted or removed
+  // explicitly from cache (both RAM and NVM)
+  CacheAllocatorConfig& setItemDestructor(ItemDestructor destructor);
 
   // Config for NvmCache. If enabled, cachelib will also make use of flash.
   CacheAllocatorConfig& enableNvmCache(NvmCacheConfig config);
@@ -303,6 +308,14 @@ class CacheAllocatorConfig {
   // smaller than this will always be rejected by NvmAdmissionPolicy.
   CacheAllocatorConfig& setNvmAdmissionMinTTL(uint64_t ttl);
 
+  // skip promote children items in chained when parent fail to promote
+  CacheAllocatorConfig& setSkipPromoteChildrenWhenParentFailed();
+
+  // skip promote children items in chained when parent fail to promote
+  bool isSkipPromoteChildrenWhenParentFailed() const noexcept {
+    return skipPromoteChildrenWhenParentFailed;
+  }
+
   // @return whether compact cache is enabled
   bool isCompactCacheEnabled() const noexcept { return enableZeroedSlabAllocs; }
 
@@ -502,8 +515,13 @@ class CacheAllocatorConfig {
   // for all normal items
   AccessConfig accessConfig{};
 
-  // user defined callback invoked when an item is being evicted or freed
+  // user defined callback invoked when an item is being evicted or freed from
+  // RAM
   RemoveCb removeCb{};
+
+  // user defined item destructor invoked when an item is being
+  // evicted or freed from cache (both RAM and NVM)
+  ItemDestructor itemDestructor{};
 
   // user defined call back to move the item. This is executed while holding
   // the user provided movingSync. For items without chained allocations,
@@ -556,6 +574,9 @@ class CacheAllocatorConfig {
   // The minimum TTL an item need to have in order to be admitted into NVM
   // cache.
   uint64_t nvmAdmissionMinTTL{0};
+
+  // skip promote children items in chained when parent fail to promote
+  bool skipPromoteChildrenWhenParentFailed{false};
 
   friend CacheT;
 
@@ -635,6 +656,13 @@ template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setRemoveCallback(
     RemoveCb cb) {
   removeCb = std::move(cb);
+  return *this;
+}
+
+template <typename T>
+CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setItemDestructor(
+    ItemDestructor destructor) {
+  itemDestructor = std::move(destructor);
   return *this;
 }
 
@@ -883,12 +911,6 @@ CacheAllocatorConfig<T>::getMemoryTierConfigs() const {
     sum_sizes += tier_config.getSize();
   }
 
-  if (size != sum_sizes) {
-    // Adjust capacity of the last tier to account for rounding error
-    config.back().setSize(
-      config.back().getSize() + (getCacheSize() - sum_sizes));
-  }
-
   return config;
 }
 
@@ -1007,6 +1029,54 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setNvmAdmissionMinTTL(
   return *this;
 }
 
+// skip promote children items in chained when parent fail to promote
+template <typename T>
+CacheAllocatorConfig<T>&
+CacheAllocatorConfig<T>::setSkipPromoteChildrenWhenParentFailed() {
+  skipPromoteChildrenWhenParentFailed = true;
+  return *this;
+}
+
+template <typename T>
+size_t CacheAllocatorConfig<T>::getCacheSize() const noexcept {
+  if (size)
+    return size;
+
+  size_t sum_sizes = 0;
+  for (const auto &tier_config : getMemoryTierConfigs()) {
+    sum_sizes += tier_config.getSize();
+  }
+
+  return sum_sizes;
+}
+
+template <typename T>
+void CacheAllocatorConfig<T>::validateMemoryTiersWithSize(
+    const MemoryTierConfigs &config, size_t size) const {
+  size_t sum_ratios = 0;
+  size_t sum_sizes = 0;
+
+  for (const auto &tier_config: config) {
+    sum_ratios += tier_config.getRatio();
+    sum_sizes += tier_config.getSize();
+  }
+
+  if (sum_ratios && sum_sizes) {
+    throw  std::invalid_argument("Cannot mix ratios and sizes.");
+  } else if (sum_sizes) {
+    if (size && sum_sizes != size) {
+      throw std::invalid_argument(
+          "Sum of tier sizes doesn't match total cache size. "
+          "Setting of cache total size is not required when per-tier "
+          "sizes are specified - it is calculated as sum of tier sizes.");
+    }
+  } else if (!sum_ratios && !sum_sizes) {
+    throw std::invalid_argument(
+      "Either sum of all memory tiers sizes or sum of all ratios "
+      "must be greater than 0.");
+  }
+}
+
 template <typename T>
 size_t CacheAllocatorConfig<T>::getCacheSize() const noexcept {
   if (size)
@@ -1055,10 +1125,6 @@ const CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::validate() const {
         "Tail hits tracking cannot be enabled on MMTypes except MM2Q.");
   }
 
-  // The first part determines max number of "slots" we can address using
-  // CompressedPtr;
-  // The second part specifies the minimal allocation size for each slot.
-  // Multiplied, they inform us the maximal addressable space for cache.
   size_t maxCacheSize = CompressedPtr::getMaxAddressableSize();
   // Configured cache size should not exceed the maximal addressable space for
   // cache.
@@ -1067,6 +1133,12 @@ const CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::validate() const {
         "config cache size: {}  exceeds max addressable space for cache: {}",
         size,
         maxCacheSize));
+  }
+
+  // we don't allow user to enable both RemoveCB and ItemDestructor
+  if (removeCb && itemDestructor) {
+    throw std::invalid_argument(
+        "It's not allowed to enable both RemoveCB and ItemDestructor.");
   }
 
   size_t sum_ratios = 0;

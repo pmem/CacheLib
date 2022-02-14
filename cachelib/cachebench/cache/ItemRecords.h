@@ -22,6 +22,32 @@
 #include "cachelib/allocator/Cache.h"
 #include "cachelib/cachebench/cache/CacheValue.h"
 
+using DestructorContext = facebook::cachelib::DestructorContext;
+/* From: https://fmt.dev/latest/api.html#udt */
+template <>
+struct fmt::formatter<DestructorContext> : formatter<string_view> {
+  // parse is inherited from formatter<string_view>.
+  template <typename FormatContext>
+  auto format(DestructorContext c, FormatContext& ctx) {
+    string_view name = "unknown";
+    switch (c) {
+    case DestructorContext::kEvictedFromRAM:
+      name = "kEvictedFromRAM";
+      break;
+    case DestructorContext::kEvictedFromNVM:
+      name = "kEvictedFromNVM";
+      break;
+    case DestructorContext::kRemovedFromRAM:
+      name = "kRemovedFromRAM";
+      break;
+    case DestructorContext::kRemovedFromNVM:
+      name = "kRemovedFromNVM";
+      break;
+    }
+    return formatter<string_view>::format(name, ctx);
+  }
+};
+
 namespace facebook::cachelib::cachebench {
 /*
  * ItemRecord and ItemRecords are used for DestructorCheck in cachebench.
@@ -41,27 +67,28 @@ struct ItemRecord {
   uint32_t version{0};
   // for debug purpose, if destructor is triggered more than once
   // what is the context for previous removal.
-  RemoveContext context;
+  DestructorContext context;
+  std::string key;
 };
 
 template <typename Allocator>
 class ItemRecords {
   using Item = typename Allocator::Item;
   using ItemHandle = typename Allocator::ItemHandle;
-  using RemoveCbData = typename Allocator::RemoveCbData;
+  using DestructorData = typename Allocator::DestructorData;
 
  public:
   explicit ItemRecords(bool enable,
                        uint64_t threads = std::thread::hardware_concurrency())
       : enable_(enable), itemRecords_(threads), mutexes_(threads) {}
 
-  bool validate(const RemoveCbData& data) {
+  bool validate(const DestructorData& data) {
     if (!enable_) {
       return true;
     }
 
     auto& item = data.item;
-    auto ptr = item.template getWritableMemoryAs<CacheValue>();
+    auto ptr = item.template getMemoryAs<CacheValue>();
 
     auto [lock, records] = getItemRecords(ptr->getIdx());
     auto& record = records[ptr->getIdx() / itemRecords_.size()];
@@ -96,12 +123,13 @@ class ItemRecords {
       std::lock_guard<std::mutex> l(keysMutex_);
       keys_.insert(handle->getKey().toString());
     }
-    auto ptr = handle->template getWritableMemoryAs<CacheValue>();
+    auto ptr = handle->template getMemoryAs<CacheValue>();
     auto idx = indexes_++;
     ptr->setIdx(idx);
     ptr->setVersion(0);
     auto [lock, records] = getItemRecords(idx);
     records.resize(std::max(idx / itemRecords_.size() + 1, records.size()));
+    records[idx / itemRecords_.size()].key = handle->getKey().toString();
   }
 
   size_t count() const {
@@ -117,7 +145,7 @@ class ItemRecords {
     if (!enable_) {
       return;
     }
-    auto ptr = it.template getWritableMemoryAs<CacheValue>();
+    auto ptr = it.template getMemoryAs<CacheValue>();
     auto [lock, records] = getItemRecords(ptr->getIdx());
     auto& record = records[ptr->getIdx() / itemRecords_.size()];
     ++record.version;
@@ -127,6 +155,22 @@ class ItemRecords {
   auto getKeys() {
     std::lock_guard<std::mutex> l(keysMutex_);
     return std::move(keys_);
+  }
+
+  void findUndestructedItem(std::ostream& out, uint64_t errorLimit) {
+    // this should be executed at the end of test to find items missing
+    // destructor, lock is not needed
+    uint64_t errorCnt = 0;
+    for (const auto& records : itemRecords_) {
+      for (const auto& record : records) {
+        if (record.destructCount == 0) {
+          out << "item missing destructor " << record.key << std::endl;
+          if (++errorCnt >= errorLimit) {
+            return;
+          }
+        }
+      }
+    }
   }
 
  private:

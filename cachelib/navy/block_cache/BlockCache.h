@@ -22,13 +22,15 @@
 #include <stdexcept>
 #include <vector>
 
+#include "cachelib/allocator/nvmcache/NavyConfig.h"
 #include "cachelib/common/AtomicCounter.h"
 #include "cachelib/common/CompilerUtils.h"
 #include "cachelib/navy/block_cache/Allocator.h"
 #include "cachelib/navy/block_cache/EvictionPolicy.h"
+#include "cachelib/navy/block_cache/HitsReinsertionPolicy.h"
 #include "cachelib/navy/block_cache/Index.h"
+#include "cachelib/navy/block_cache/PercentageReinsertionPolicy.h"
 #include "cachelib/navy/block_cache/RegionManager.h"
-#include "cachelib/navy/block_cache/ReinsertionPolicy.h"
 #include "cachelib/navy/common/Device.h"
 #include "cachelib/navy/common/SizeDistribution.h"
 #include "cachelib/navy/engine/Engine.h"
@@ -54,8 +56,7 @@ class BlockCache final : public Engine {
     uint64_t cacheSize{};
     // Eviction policy
     std::unique_ptr<EvictionPolicy> evictionPolicy;
-    // reinsertion policy
-    std::unique_ptr<ReinsertionPolicy> reinsertionPolicy;
+    BlockCacheReinsertionConfig reinsertionConfig{};
     // Sorted list of size classes (empty means stack allocator)
     std::vector<uint32_t> sizeClasses;
     // Region size, bytes
@@ -69,6 +70,8 @@ class BlockCache final : public Engine {
     // Number of in-memory buffers where writes are buffered before flushed
     // on to the device
     uint32_t numInMemBuffers{};
+    // whether ItemDestructor is enabled
+    bool itemDestructorEnabled{false};
 
     // Maximum number of retry times for in-mem buffer flushing.
     // When exceeding the limit, we will not reschedule any flushing job but
@@ -129,7 +132,7 @@ class BlockCache final : public Engine {
 
   // Removes a key from BlockCache.
   //
-  // @param hk  key to be removed
+  // @param hk           key to be removed
   //
   // @return Status::Ok if the key is found and Status::NotFound otherwise.
   Status remove(HashedKey hk) override;
@@ -316,6 +319,12 @@ class BlockCache final : public Engine {
 
   void validate(Config& config) const;
 
+  // Create the reinsertion policy from config.
+  // This function may need a reference to index and should be called the last
+  // in the initialization order.
+  std::shared_ptr<BlockCacheReinsertionPolicy> makeReinsertionPolicy(
+      const BlockCacheReinsertionConfig& reinsertionConfig);
+
   const serialization::BlockCacheConfig config_;
   const uint16_t numPriorities_{};
   const DestructorCallback destructorCb_;
@@ -333,6 +342,8 @@ class BlockCache final : public Engine {
   const uint32_t readBufferSize_{};
   // number of bytes in a region
   const uint64_t regionSize_{};
+  // whether ItemDestructor is enabled
+  const bool itemDestructorEnabled_{false};
 
   // Index stores offset of the slot *end*. This enables efficient paradigm
   // "buffer pointer is value pointer", which means value has to be at offset 0
@@ -347,13 +358,18 @@ class BlockCache final : public Engine {
   Index index_;
   RegionManager regionManager_;
   Allocator allocator_;
-  std::unique_ptr<ReinsertionPolicy> reinsertionPolicy_;
+  // It is vital that the reinsertion policy is initialized after index_.
+  // Make sure that this class member is defined after index_.
+  std::shared_ptr<BlockCacheReinsertionPolicy> reinsertionPolicy_;
 
+  // thread local counters in synchronized/critical path
+  mutable TLCounter lookupCount_;
+  mutable TLCounter succLookupCount_;
+
+  // atomic counters in asynchronized path
   mutable AtomicCounter insertCount_;
   mutable AtomicCounter insertHashCollisionCount_;
   mutable AtomicCounter succInsertCount_;
-  mutable AtomicCounter lookupCount_;
-  mutable AtomicCounter succLookupCount_;
   mutable AtomicCounter lookupFalsePositiveCount_;
   mutable AtomicCounter lookupEntryHeaderChecksumErrorCount_;
   mutable AtomicCounter lookupValueChecksumErrorCount_;
@@ -372,6 +388,7 @@ class BlockCache final : public Engine {
   mutable AtomicCounter cleanupEntryHeaderChecksumErrorCount_;
   mutable AtomicCounter cleanupValueChecksumErrorCount_;
   mutable SizeDistribution sizeDist_;
+  mutable AtomicCounter lookupForItemDestructorErrorCount_;
 };
 } // namespace navy
 } // namespace cachelib

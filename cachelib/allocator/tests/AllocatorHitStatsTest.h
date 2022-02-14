@@ -137,7 +137,7 @@ class AllocatorHitStatsTest : public SlabAllocatorTestBase {
       const auto parentName =
           "parent" +
           folly::to<std::string>(folly::Random::rand32(0, numParents));
-      auto parent = alloc.find(parentName);
+      auto parent = alloc.findToWrite(parentName);
       ASSERT_NE(nullptr, parent);
       auto childItem = alloc.allocateChainedItem(
           parent, folly::Random::rand32(100, 2 * 1024));

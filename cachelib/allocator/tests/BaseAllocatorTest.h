@@ -112,9 +112,6 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
         stats = allocator->getPoolStats(poolId);
         int classId =
             allocator->getPool(poolId).getAllocationClassId(kItemSize);
-        ASSERT_EQ(nItems,
-                  stats.cacheStats[static_cast<ClassId>(classId + 1)]
-                      .containerStat.numLockByInserts);
         ASSERT_EQ(nItems / 3,
                   stats.cacheStats[static_cast<ClassId>(classId + 1)]
                       .containerStat.numHotAccesses);
@@ -252,10 +249,10 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     // grab a handle for the current allocation, remove the allocation and you
     // should be able to allocate a new one while still holding a handle to the
     // previously allocated one.
-    auto handle = alloc.find(key);
+    auto handle = alloc.findToWrite(key);
     ASSERT_NE(handle, nullptr);
     const char magicVal1 = 'f';
-    memset(handle->getWritableMemory(), magicVal1, handle->getSize());
+    memset(handle->getMemory(), magicVal1, handle->getSize());
 
     // remove the existing handle.
     ASSERT_EQ(AllocatorT::RemoveRes::kSuccess, alloc.remove(key));
@@ -265,7 +262,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     ASSERT_NE(newHandle, nullptr);
     ASSERT_NE(newHandle, handle);
     const char magicVal2 = 'g';
-    memset(newHandle->getWritableMemory(), magicVal2, newHandle->getSize());
+    memset(newHandle->getMemory(), magicVal2, newHandle->getSize());
 
     // handle and newHandle should have nothing in common.
     const char* m = reinterpret_cast<const char*>(handle->getMemory());
@@ -492,7 +489,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     {
       auto inAccessibleHandle = alloc.allocate(poolId, key, sizes[0]);
       ASSERT_NE(inAccessibleHandle, nullptr);
-      memset(inAccessibleHandle->getWritableMemory(), magicVal1,
+      memset(inAccessibleHandle->getMemory(), magicVal1,
              inAccessibleHandle->getSize());
     }
 
@@ -503,7 +500,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
       ASSERT_EQ(alloc.find(key), nullptr);
       ASSERT_TRUE(alloc.insert(std::move(handle)));
-      memset(handle->getWritableMemory(), magicVal2, handle->getSize());
+      memset(handle->getMemory(), magicVal2, handle->getSize());
     }
 
     evictedKeys.clear();
@@ -532,7 +529,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     // but we should be able to replace this item
     {
       auto newHandle = alloc.allocate(poolId, key, sizes[0]);
-      memset(newHandle->getWritableMemory(), magicVal3, newHandle->getSize());
+      memset(newHandle->getMemory(), magicVal3, newHandle->getSize());
       ASSERT_EQ(handle, alloc.insertOrReplace(newHandle));
     }
     {
@@ -696,6 +693,56 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
                                         3 * poolSize1);
   }
 
+  bool isConst(const void*) { return true; }
+  bool isConst(void*) { return false; }
+
+  using WriteHandle = typename AllocatorT::WriteHandle;
+  using ReadHandle = typename AllocatorT::ReadHandle;
+  void testReadWriteHandle() {
+    typename AllocatorT::Config config;
+    config.setCacheSize(10 * Slab::kSize);
+
+    AllocatorT alloc(config);
+    const size_t numBytes = alloc.getCacheMemoryStats().cacheSize;
+    auto poolId = alloc.addPool("default", numBytes);
+
+    {
+      auto handle = util::allocateAccessible(alloc, poolId, "key", 100);
+      ASSERT_NE(handle, nullptr);
+      ASSERT_FALSE(isConst(handle->getMemory()));
+    }
+
+    {
+      auto handle = alloc.find("key");
+      ASSERT_NE(handle, nullptr);
+      ASSERT_TRUE(isConst(handle->getMemory()));
+      ASSERT_EQ(handle.isWriteHandle(), false);
+
+      // read handle clone
+      auto handle2 = handle.clone();
+      ASSERT_TRUE(isConst(handle2->getMemory()));
+      ASSERT_EQ(handle2.isWriteHandle(), false);
+    }
+
+    {
+      auto handle = alloc.findToWrite("key");
+      ASSERT_NE(handle, nullptr);
+      ASSERT_FALSE(isConst(handle->getMemory()));
+      ASSERT_EQ(handle.isWriteHandle(), true);
+
+      // write handle clone
+      auto handle2 = handle.clone();
+      ASSERT_FALSE(isConst(handle2->getMemory()));
+      ASSERT_EQ(handle2.isWriteHandle(), true);
+
+      // downgrade a write handle to a read handle
+      ReadHandle handle3 = handle.clone();
+      ASSERT_NE(handle3, nullptr);
+      ASSERT_TRUE(isConst(handle3->getMemory()));
+      ASSERT_EQ(handle3.isWriteHandle(), false);
+    }
+  }
+
   // make some allocations without evictions and ensure that we are able to
   // fetch them.
   void testFind() {
@@ -840,6 +887,66 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     const auto sizes = this->getValidAllocSizes(alloc, poolId, nSizes, keyLen);
 
     // remove cb should not be called for items not inserted in cache.
+    for (int i = 0; i < 100; i++) {
+      auto hdl = alloc.allocate(poolId, std::to_string(i), sizes[i % nSizes]);
+    }
+
+    ASSERT_EQ(0, evictedKeys.size());
+    ASSERT_EQ(0, removedKeys.size());
+
+    this->fillUpPoolUntilEvictions(alloc, poolId, sizes, keyLen);
+    this->ensureAllocsOnlyFromEvictions(alloc, poolId, sizes, keyLen,
+                                        3 * numBytes);
+    // must have evicted at least once.
+    ASSERT_GE(evictedKeys.size(), sizes.size());
+    auto prevNEvicions = evictedKeys.size();
+    this->ensureAllocsOnlyFromEvictions(alloc, poolId, sizes, keyLen,
+                                        3 * numBytes);
+    ASSERT_GT(evictedKeys.size(), prevNEvicions);
+
+    for (const auto size : sizes) {
+      prevNEvicions = evictedKeys.size();
+      const auto key = this->getRandomNewKey(alloc, keyLen);
+      auto handle = util::allocateAccessible(alloc, poolId, key, size);
+      ASSERT_NE(handle, nullptr);
+      ASSERT_EQ(prevNEvicions + 1, evictedKeys.size());
+      // ensure that evicted key cannot be found.
+      const auto& evictedKey = evictedKeys.back();
+      ASSERT_EQ(alloc.find(evictedKey), nullptr);
+      ASSERT_NE(alloc.find(key), nullptr);
+    }
+  }
+
+  // trigger various scenarios for item being destroyed from cache and ensure
+  // that destructor call back fires.
+  void testItemDestructor() {
+    std::vector<std::string> evictedKeys;
+    std::vector<std::string> removedKeys;
+    PoolId poolId;
+    auto itemDestructor = [&](const typename AllocatorT::DestructorData& data) {
+      const auto key = data.item.getKey();
+      if (data.context == DestructorContext::kEvictedFromRAM) {
+        evictedKeys.push_back({key.data(), key.size()});
+      } else {
+        // kRemovedFromRAM case, no NVM in this test
+        removedKeys.push_back({key.data(), key.size()});
+      }
+      ASSERT_EQ(poolId, data.pool);
+    };
+    typename AllocatorT::Config config;
+    config.setItemDestructor(itemDestructor);
+    config.setCacheSize(100 * Slab::kSize);
+
+    AllocatorT alloc(config);
+    const size_t numBytes = alloc.getCacheMemoryStats().cacheSize / 2;
+    alloc.addPool("fake", numBytes);
+    poolId = alloc.addPool("foobar", numBytes);
+
+    const unsigned int nSizes = 10;
+    const unsigned int keyLen = 100;
+    const auto sizes = this->getValidAllocSizes(alloc, poolId, nSizes, keyLen);
+
+    // destructor cb should not be called for items not inserted in cache.
     for (int i = 0; i < 100; i++) {
       auto hdl = alloc.allocate(poolId, std::to_string(i), sizes[i % nSizes]);
     }
@@ -1031,7 +1138,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     // ensure that you can fetch all the items that we have a handle on.
     // TODO we might want to revisit this guarantee
     int8_t val = 1;
-    for (const auto& handle : handles) {
+    for (auto& handle : handles) {
       const auto key = handle->getKey();
       // ensure key was not evicted.
       ASSERT_EQ(evictedKeys.find({key.data(), key.size()}), evictedKeys.end());
@@ -1040,9 +1147,8 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
       ASSERT_EQ(handle.get(), newHandle.get());
       ASSERT_EQ(evictedKeys.find({key.data(), key.size()}), evictedKeys.end());
       // also write a unique value to the handle's memory
-      void* m = handle->getWritableMemory();
       size_t size = handle->getSize();
-      memset(m, val++, size);
+      memset(handle->getMemory(), val++, size);
     }
 
     // remove the keys to which we have handle to.
@@ -1971,7 +2077,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     for (uint8_t i = 0; i < numItems; ++i) {
       const std::string key = keyPrefix + folly::to<std::string>(i);
       auto item = util::allocateAccessible(alloc, poolId, key, itemSize);
-      uint8_t* data = reinterpret_cast<uint8_t*>(item->getWritableMemory());
+      uint8_t* data = reinterpret_cast<uint8_t*>(item->getMemory());
       data[0] = i;
     }
 
@@ -2031,12 +2137,12 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
     {
       auto parent = util::allocateAccessible(alloc, poolId, "parent", 100);
-      *reinterpret_cast<char*>(parent->getWritableMemory()) = 'p';
+      *reinterpret_cast<char*>(parent->getMemory()) = 'p';
       for (unsigned int i = 0; i < 1000; ++i) {
         auto chained = alloc.allocateChainedItem(parent, 100);
         ASSERT_EQ(2, alloc.getNumActiveHandles());
 
-        *reinterpret_cast<int*>(chained->getWritableMemory()) = i;
+        *reinterpret_cast<int*>(chained->getMemory()) = i;
         alloc.addChainedItem(parent, std::move(chained));
       }
       ASSERT_EQ(1, alloc.getNumActiveHandles());
@@ -2091,12 +2197,12 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
     {
       auto parent = util::allocateAccessible(alloc, poolId, "parent", 100);
-      *reinterpret_cast<char*>(parent->getWritableMemory()) = 'p';
+      *reinterpret_cast<char*>(parent->getMemory()) = 'p';
       for (unsigned int i = 0; i < 1000; ++i) {
         auto chained = alloc.allocateChainedItem(parent, 100);
         ASSERT_EQ(2, alloc.getNumActiveHandles());
 
-        *reinterpret_cast<int*>(chained->getWritableMemory()) = i;
+        *reinterpret_cast<int*>(chained->getMemory()) = i;
         alloc.addChainedItem(parent, std::move(chained));
       }
       ASSERT_EQ(1, alloc.getNumActiveHandles());
@@ -2161,12 +2267,12 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
     {
       auto parent = util::allocateAccessible(alloc, poolId, "parent", 100);
-      *reinterpret_cast<char*>(parent->getWritableMemory()) = 'p';
+      *reinterpret_cast<char*>(parent->getMemory()) = 'p';
       for (unsigned int i = 0; i < 1000; ++i) {
         auto chained = alloc.allocateChainedItem(parent, 100);
         ASSERT_EQ(2, alloc.getNumActiveHandles());
 
-        *reinterpret_cast<int*>(chained->getWritableMemory()) = i;
+        *reinterpret_cast<int*>(chained->getMemory()) = i;
         alloc.addChainedItem(parent, std::move(chained));
       }
       ASSERT_EQ(1, alloc.getNumActiveHandles());
@@ -2271,12 +2377,12 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
     {
       auto parent = util::allocateAccessible(alloc, poolId, "parent", 100);
-      *reinterpret_cast<char*>(parent->getWritableMemory()) = 'p';
+      *reinterpret_cast<char*>(parent->getMemory()) = 'p';
       for (unsigned int i = 0; i < nChainedAllocs; ++i) {
         auto chained = alloc.allocateChainedItem(parent, 100);
         ASSERT_EQ(2, alloc.getNumActiveHandles());
 
-        *reinterpret_cast<int*>(chained->getWritableMemory()) = i;
+        *reinterpret_cast<int*>(chained->getMemory()) = i;
         alloc.addChainedItem(parent, std::move(chained));
       }
       ASSERT_EQ(1, alloc.getNumActiveHandles());
@@ -2291,7 +2397,8 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
     // Confirm we have all the chained item iobufs
     int i = nChainedAllocs - 1;
-    for (const auto& c : chainedAllocs.getChain()) {
+    for (auto& c : chainedAllocs.getChain()) {
+      ASSERT_TRUE(isConst(c.getMemory()));
       ASSERT_EQ(*reinterpret_cast<const int*>(c.getMemory()), i);
       ASSERT_EQ(&c, chainedAllocs.getNthInChain(nChainedAllocs - i - 1));
       i--;
@@ -2330,8 +2437,9 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     std::vector<std::thread> threads;
     for (unsigned int i = 0; i < nChainedAllocs; ++i) {
       threads.emplace_back([&expectedMemory, &alloc, i]() {
-        auto parent = alloc.find("parent");
-        auto* nThChain = alloc.viewAsChainedAllocs(parent).getNthInChain(i);
+        auto parent = alloc.findToWrite("parent");
+        auto* nThChain =
+            alloc.viewAsWritableChainedAllocs(parent).getNthInChain(i);
         ASSERT_NE(nullptr, nThChain);
         auto newAlloc = alloc.allocateChainedItem(parent, 50);
 
@@ -2381,7 +2489,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
     {
       auto parent = util::allocateAccessible(alloc, poolId, "parent", 100);
-      *reinterpret_cast<char*>(parent->getWritableMemory()) = 'p';
+      *reinterpret_cast<char*>(parent->getMemory()) = 'p';
 
       {
         auto otherChainedHdl = alloc.allocateChainedItem(otherParent, 220);
@@ -2401,7 +2509,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
       for (unsigned int i = 0; i < nChainedAllocs; ++i) {
         auto chained = alloc.allocateChainedItem(parent, 100);
-        *reinterpret_cast<int*>(chained->getWritableMemory()) = i;
+        *reinterpret_cast<int*>(chained->getMemory()) = i;
         alloc.addChainedItem(parent, std::move(chained));
       }
     }
@@ -2421,8 +2529,9 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
     std::vector<const void*> expectedMemory;
     for (unsigned int i = 0; i < nChainedAllocs; i++) {
-      auto parent = alloc.find("parent");
-      auto* nThChain = alloc.viewAsChainedAllocs(parent).getNthInChain(i);
+      auto parent = alloc.findToWrite("parent");
+      auto* nThChain =
+          alloc.viewAsWritableChainedAllocs(parent).getNthInChain(i);
       ASSERT_NE(nullptr, nThChain);
       auto newAlloc = alloc.allocateChainedItem(parent, 50);
 
@@ -2452,17 +2561,17 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
     {
       auto parent = util::allocateAccessible(alloc, poolId, "parent", 100);
-      *reinterpret_cast<char*>(parent->getWritableMemory()) = 'p';
+      *reinterpret_cast<char*>(parent->getMemory()) = 'p';
       for (unsigned int i = 0; i < nChainedAllocs; ++i) {
         auto chained =
             alloc.allocateChainedItem(parent, folly::Random::rand32(100, 9000));
-        *reinterpret_cast<int*>(chained->getWritableMemory()) = i;
+        *reinterpret_cast<int*>(chained->getMemory()) = i;
         alloc.addChainedItem(parent, std::move(chained));
       }
       ASSERT_TRUE(parent->hasChainedItem());
     }
 
-    auto originalParent = alloc.find("parent");
+    auto originalParent = alloc.findToWrite("parent");
 
     // parent of different size
     auto newParent = alloc.allocate(poolId, "parent", 1000);
@@ -2518,7 +2627,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
       keys.push_back(key);
     }
 
-    std::vector<typename AllocatorT::ItemHandle> handles;
+    std::vector<typename AllocatorT::ReadHandle> handles;
     // We should be able to view data through IOBuf
     for (const auto& key : keys) {
       for (unsigned int i = 0; i < 5; i++) {
@@ -2636,7 +2745,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
       ASSERT_EQ(0, alloc.getHandleCountForThread());
 
       auto semiFuture = std::move(hdl).toSemiFuture().deferValue(
-          [](typename AllocatorT::ItemHandle) { return true; });
+          [](typename AllocatorT::ReadHandle) { return true; });
 
       // This is like doing a "clone" and setting it into wait context
       waitContext->set(alloc.find("test"));
@@ -2744,7 +2853,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
       keys.push_back(key);
     }
 
-    std::vector<typename AllocatorT::ItemHandle> handles;
+    std::vector<typename AllocatorT::ReadHandle> handles;
     // We should be able to view data through IOBuf
     for (const auto& key : keys) {
       for (unsigned int i = 0; i < 5; i++) {
@@ -3163,7 +3272,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     config.enableCachePersistence(this->cacheDir_);
     config.setCacheSize(size);
     {
-      std::vector<typename AllocatorT::ItemHandle> handles;
+      std::vector<typename AllocatorT::ReadHandle> handles;
       AllocatorT alloc(AllocatorT::SharedMemNew, config);
       const size_t numBytes = alloc.getCacheMemoryStats().cacheSize;
       const std::set<uint32_t> acSizes = {512 * 1024, 1024 * 1024};
@@ -3320,8 +3429,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
         [](typename AllocatorT::Item& oldItem,
            typename AllocatorT::Item& newItem,
            typename AllocatorT::Item* /* parentPtr */) {
-          memcpy(newItem.getWritableMemory(), oldItem.getMemory(),
-                 oldItem.getSize());
+          memcpy(newItem.getMemory(), oldItem.getMemory(), oldItem.getSize());
         });
     config.setCacheSize((numSlabs + 1) * Slab::kSize);
     AllocatorT allocator(config);
@@ -3396,8 +3504,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
                            typename AllocatorT::Item& newItem,
                            typename AllocatorT::Item* /* parentPtr */) {
       // Simple move callback
-      memcpy(newItem.getWritableMemory(), oldItem.getMemory(),
-             oldItem.getSize());
+      memcpy(newItem.getMemory(), oldItem.getMemory(), oldItem.getSize());
     };
 
     const int numSlabs = 2;
@@ -3436,7 +3543,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     // for the move.
     char* oldContent = reinterpret_cast<char*>(
         util::allocateAccessible(allocator, poolId, "slab1_key0", kItemSize)
-            ->getWritableMemory());
+            ->getMemory());
     memcpy(oldContent, content.data(), kItemSize);
 
     // Remove a single item from the first slab to free up the destination
@@ -4100,19 +4207,16 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
       ASSERT_TRUE(differentClasses);
 
       for (uint64_t i = 0; i < itemHandle->getSize(); ++i) {
-        reinterpret_cast<uint8_t*>(itemHandle->getWritableMemory())[i] = 'a';
+        reinterpret_cast<uint8_t*>(itemHandle->getMemory())[i] = 'a';
       }
       for (uint64_t i = 0; i < chainedItemHandle->getSize(); ++i) {
-        reinterpret_cast<uint8_t*>(chainedItemHandle->getWritableMemory())[i] =
-            'b';
+        reinterpret_cast<uint8_t*>(chainedItemHandle->getMemory())[i] = 'b';
       }
       for (uint64_t i = 0; i < chainedItemHandle2->getSize(); ++i) {
-        reinterpret_cast<uint8_t*>(chainedItemHandle2->getWritableMemory())[i] =
-            'c';
+        reinterpret_cast<uint8_t*>(chainedItemHandle2->getMemory())[i] = 'c';
       }
       for (uint64_t i = 0; i < chainedItemHandle3->getSize(); ++i) {
-        reinterpret_cast<uint8_t*>(chainedItemHandle3->getWritableMemory())[i] =
-            'd';
+        reinterpret_cast<uint8_t*>(chainedItemHandle3->getMemory())[i] = 'd';
       }
     }
 
@@ -4175,17 +4279,17 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
     auto chainedItemHandle = alloc.allocateChainedItem(itemHandle, size * 2);
     ASSERT_NE(nullptr, chainedItemHandle);
-    reinterpret_cast<char*>(chainedItemHandle->getWritableMemory())[0] = '1';
+    reinterpret_cast<char*>(chainedItemHandle->getMemory())[0] = '1';
     alloc.addChainedItem(itemHandle, std::move(chainedItemHandle));
 
     auto chainedItemHandle2 = alloc.allocateChainedItem(itemHandle, size * 4);
     ASSERT_NE(nullptr, chainedItemHandle2);
-    reinterpret_cast<char*>(chainedItemHandle2->getWritableMemory())[0] = '2';
+    reinterpret_cast<char*>(chainedItemHandle2->getMemory())[0] = '2';
     alloc.addChainedItem(itemHandle, std::move(chainedItemHandle2));
 
     auto chainedItemHandle3 = alloc.allocateChainedItem(itemHandle, size * 8);
     ASSERT_NE(nullptr, chainedItemHandle3);
-    reinterpret_cast<char*>(chainedItemHandle3->getWritableMemory())[0] = '3';
+    reinterpret_cast<char*>(chainedItemHandle3->getMemory())[0] = '3';
     alloc.addChainedItem(itemHandle, std::move(chainedItemHandle3));
 
     {
@@ -4387,7 +4491,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     const auto pid = alloc.addPool("one", poolSize);
 
     auto addFn = [&] {
-      auto itemHandle = alloc.find("parent");
+      auto itemHandle = alloc.findToWrite("parent");
       for (unsigned int j = 0; j < 100000; ++j) {
         auto childItem = alloc.allocateChainedItem(itemHandle, 100);
         ASSERT_NE(nullptr, childItem);
@@ -4397,7 +4501,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     };
 
     auto popFn = [&] {
-      auto itemHandle = alloc.find("parent");
+      auto itemHandle = alloc.findToWrite("parent");
       for (unsigned int j = 0; j < 100000; ++j) {
         alloc.popChainedItem(itemHandle);
       }
@@ -4588,7 +4692,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     {
       auto chained = alloc.allocateChainedItem(parentHandle, 50);
       ASSERT_TRUE(chained);
-      *(chained->template getWritableMemoryAs<char>()) = 'a';
+      *(chained->template getMemoryAs<char>()) = 'a';
 
       currChainedItem = chained.get();
 
@@ -4598,7 +4702,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     {
       auto chained = alloc.allocateChainedItem(parentHandle, 50);
       ASSERT_TRUE(chained);
-      *(chained->template getWritableMemoryAs<char>()) = 'b';
+      *(chained->template getMemoryAs<char>()) = 'b';
 
       Item& oldItem = *currChainedItem;
       currChainedItem = chained.get();
@@ -4611,7 +4715,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     {
       auto chained = alloc.allocateChainedItem(parentHandle, 500);
       ASSERT_TRUE(chained);
-      *(chained->template getWritableMemoryAs<char>()) = 'c';
+      *(chained->template getMemoryAs<char>()) = 'c';
 
       Item& oldItem = *currChainedItem;
       currChainedItem = chained.get();
@@ -4657,8 +4761,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
         ASSERT_FALSE(oldItem.isChainedItem());
       }
 
-      std::memcpy(newItem.getWritableMemory(), oldItem.getMemory(),
-                  oldItem.getSize());
+      std::memcpy(newItem.getMemory(), oldItem.getMemory(), oldItem.getSize());
       ++numMoves;
     });
 
@@ -4682,7 +4785,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
           itemHandle = alloc.allocate(pid, key, sizes[0]);
 
           uint8_t* parentBuf =
-              reinterpret_cast<uint8_t*>(itemHandle->getWritableMemory());
+              reinterpret_cast<uint8_t*>(itemHandle->getMemory());
           (*parentBuf) = static_cast<uint8_t>(i);
           alloc.insert(itemHandle);
 
@@ -4691,8 +4794,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
                 alloc.allocateChainedItem(itemHandle, sizes[j % sizes.size()]);
             ASSERT_NE(nullptr, childItem);
 
-            uint8_t* buf =
-                reinterpret_cast<uint8_t*>(childItem->getWritableMemory());
+            uint8_t* buf = reinterpret_cast<uint8_t*>(childItem->getMemory());
             for (uint8_t k = 0; k < 100; ++k) {
               buf[k] = static_cast<uint8_t>((k + i) % 256);
             }
@@ -4746,7 +4848,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
         for (unsigned int i = 0; i < 1000; ++i) {
           const auto key = keyPrefix + folly::to<std::string>(loop) + "_" +
                            folly::to<std::string>(i);
-          auto parent = alloc.find(key);
+          auto parent = alloc.findToWrite(key);
           uint64_t numChildren = 0;
           while (parent->hasChainedItem()) {
             auto child = alloc.popChainedItem(parent);
@@ -4862,7 +4964,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     config.enableMovingOnSlabRelease(
         [&](Item& oldItem, Item& newItem, Item* /* parentPtr */) {
           assert(oldItem.getSize() == newItem.getSize());
-          std::memcpy(newItem.getWritableMemory(), oldItem.getMemory(),
+          std::memcpy(newItem.getMemory(), oldItem.getMemory(),
                       oldItem.getSize());
           ++numMoves;
         },
@@ -4892,8 +4994,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
                 alloc.allocateChainedItem(itemHandle, sizes[j % sizes.size()]);
             ASSERT_NE(nullptr, childItem);
 
-            uint8_t* buf =
-                reinterpret_cast<uint8_t*>(childItem->getWritableMemory());
+            uint8_t* buf = reinterpret_cast<uint8_t*>(childItem->getMemory());
             // write first 50 bytes here
             for (uint8_t k = 0; k < 50; ++k) {
               buf[k] = k;
@@ -4961,7 +5062,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
         for (unsigned int i = 0; i < 1000; ++i) {
           const auto key = keyPrefix + folly::to<std::string>(loop) + "_" +
                            folly::to<std::string>(i);
-          auto parent = alloc.find(key);
+          auto parent = alloc.findToWrite(key);
           uint64_t numChildren = 0;
           while (parent->hasChainedItem()) {
             auto child = alloc.popChainedItem(parent);
@@ -5040,7 +5141,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
         [&](Item& oldItem, Item& newItem, Item* /* parentPtr */) {
           XDCHECK_EQ(oldItem.getSize(), newItem.getSize());
           XDCHECK_EQ(oldItem.getKey(), newItem.getKey());
-          std::memcpy(newItem.getWritableMemory(), oldItem.getMemory(),
+          std::memcpy(newItem.getMemory(), oldItem.getMemory(),
                       oldItem.getSize());
           ++numMoves;
         },
@@ -5082,7 +5183,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     // we know moving sync is held now.
     {
       auto newParent = alloc.allocate(pid, movingKey, 600);
-      auto parent = alloc.find(movingKey);
+      auto parent = alloc.findToWrite(movingKey);
       alloc.transferChainAndReplace(parent, newParent);
     }
 
@@ -5208,7 +5309,7 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     // Thread to allocate chained child items
     int childCount = 17;
     auto addChild = [&] {
-      auto itemHandle = alloc.find("parent");
+      auto itemHandle = alloc.findToWrite("parent");
       for (int j = 0; j < childCount; j++) {
         auto childItem = alloc.allocateChainedItem(itemHandle, itemSize);
         ASSERT_NE(nullptr, childItem);
@@ -5405,7 +5506,8 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
   void testChainedItemIterator() {
     typename AllocatorT::Config config;
-    using Iterator = CacheChainedItemIterator<AllocatorT>;
+    using Iterator =
+        CacheChainedItemIterator<AllocatorT, const typename AllocatorT::Item>;
 
     config.configureChainedItems();
     config.setCacheSize(10 * Slab::kSize);
@@ -5441,7 +5543,8 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
 
   void testChainIteratorInvalidArg() {
     typename AllocatorT::Config config;
-    using Iterator = CacheChainedItemIterator<AllocatorT>;
+    using Iterator =
+        CacheChainedItemIterator<AllocatorT, const typename AllocatorT::Item>;
 
     config.configureChainedItems();
     config.setCacheSize(10 * Slab::kSize);

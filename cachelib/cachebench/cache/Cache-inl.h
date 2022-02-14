@@ -64,7 +64,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
     allocatorConfig_.enableMovingOnSlabRelease(
         [](Item& oldItem, Item& newItem, Item* parentPtr) {
           XDCHECK(oldItem.isChainedItem() == (parentPtr != nullptr));
-          std::memcpy(newItem.getWritableMemory(), oldItem.getMemory(),
+          std::memcpy(newItem.getMemory(), oldItem.getMemory(),
                       oldItem.getSize());
         },
         movingSync);
@@ -115,8 +115,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   });
 
   if (config_.enableItemDestructorCheck) {
-    // TODO (zixuan) use ItemDestructor once feature is finished
-    auto removeCB = [&](const typename Allocator::RemoveCbData& data) {
+    auto removeCB = [&](const typename Allocator::DestructorData& data) {
       if (!itemRecords_.validate(data)) {
         ++invalidDestructor_;
       }
@@ -124,11 +123,10 @@ Cache<Allocator>::Cache(const CacheConfig& config,
       // size of itemRecords_ (also is the number of new allocations)
       ++totalDestructor_;
     };
-    allocatorConfig_.setRemoveCallback(removeCB);
+    allocatorConfig_.setItemDestructor(removeCB);
   } else if (config_.enableItemDestructor) {
-    // TODO (zixuan) use ItemDestructor once feature is finished
-    auto removeCB = [&](const typename Allocator::RemoveCbData&) {};
-    allocatorConfig_.setRemoveCallback(removeCB);
+    auto removeCB = [&](const typename Allocator::DestructorData&) {};
+    allocatorConfig_.setItemDestructor(removeCB);
   }
 
   // Set up Navy
@@ -373,7 +371,7 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::allocateChainedItem(
     const ItemHandle& parent, size_t size) {
   auto handle = cache_->allocateChainedItem(parent, CacheValue::getSize(size));
   if (handle) {
-    CacheValue::initialize(handle->getWritableMemory());
+    CacheValue::initialize(handle->getMemory());
   }
   return handle;
 }
@@ -407,7 +405,7 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::allocate(
   try {
     handle = cache_->allocate(pid, key, CacheValue::getSize(size), ttlSecs);
     if (handle) {
-      CacheValue::initialize(handle->getWritableMemory());
+      CacheValue::initialize(handle->getMemory());
     }
   } catch (const std::invalid_argument& e) {
     XLOGF(DBG, "Unable to allocate, reason: {}", e.what());
@@ -460,14 +458,17 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
     // find from cache and wait for the result to be ready.
     auto it = cache_->find(key, mode);
     it.wait();
+
+    if (valueValidatingEnabled()) {
+      XDCHECK(!consistencyCheckEnabled());
+      validateValue(it);
+    }
+
     return it;
   };
 
   if (!consistencyCheckEnabled()) {
     auto it = findFn();
-    if (valueValidatingEnabled()) {
-      validateValue(it);
-    }
     return it;
   }
 
@@ -521,6 +522,7 @@ Stats Cache<Allocator>::getStats() const {
 
   ret.numCacheGets = cacheStats.numCacheGets;
   ret.numCacheGetMiss = cacheStats.numCacheGetMiss;
+  ret.numRamDestructorCalls = cacheStats.numRamDestructorCalls;
   ret.numNvmGets = cacheStats.numNvmGets;
   ret.numNvmGetMiss = cacheStats.numNvmGetMiss;
   ret.numNvmGetCoalesced = cacheStats.numNvmGetCoalesced;
@@ -535,6 +537,7 @@ Stats Cache<Allocator>::getStats() const {
   ret.numNvmUncleanEvict = cacheStats.numNvmUncleanEvict;
   ret.numNvmCleanEvict = cacheStats.numNvmCleanEvict;
   ret.numNvmCleanDoubleEvict = cacheStats.numNvmCleanDoubleEvict;
+  ret.numNvmDestructorCalls = cacheStats.numNvmDestructorCalls;
   ret.numNvmEvictions = cacheStats.numNvmEvictions;
 
   ret.numNvmDeletes = cacheStats.numNvmDeletes;
@@ -600,6 +603,7 @@ Stats Cache<Allocator>::getStats() const {
     ret.nvmWriteLatencyMicrosP999999 =
         lookup("navy_device_write_latency_us_p999999");
     ret.nvmWriteLatencyMicrosP100 = lookup("navy_device_write_latency_us_p100");
+    ret.numNvmItemRemovedSetSize = lookup("items_tracked_for_destructor");
 
     // track any non-zero check sum errors or io errors
     for (const auto& [k, v] : navyStats) {
@@ -614,7 +618,7 @@ Stats Cache<Allocator>::getStats() const {
 }
 
 template <typename Allocator>
-void Cache<Allocator>::clearCache() {
+void Cache<Allocator>::clearCache(uint64_t errorLimit) {
   if (config_.enableItemDestructorCheck) {
     // all items leftover in the cache must be removed
     // at the end of the test to trigger ItemDestrutor
@@ -626,6 +630,7 @@ void Cache<Allocator>::clearCache() {
       cache_->remove(key);
     }
     cache_->flushNvmCache();
+    itemRecords_.findUndestructedItem(std::cout, errorLimit);
   }
 }
 
@@ -658,14 +663,14 @@ void Cache<Allocator>::trackChainChecksum(const ItemHandle& handle) {
 template <typename Allocator>
 void Cache<Allocator>::setUint64ToItem(ItemHandle& handle, uint64_t num) const {
   XDCHECK(handle);
-  auto ptr = handle->template getWritableMemoryAs<CacheValue>();
+  auto ptr = handle->template getMemoryAs<CacheValue>();
   ptr->setConsistencyNum(num);
 }
 
 template <typename Allocator>
 void Cache<Allocator>::setStringItem(ItemHandle& handle,
-                                     const std::string& str) const {
-  auto ptr = reinterpret_cast<uint8_t*>(getWritableMemory(handle));
+                                     const std::string& str) {
+  auto ptr = reinterpret_cast<uint8_t*>(getMemory(handle));
   std::memcpy(ptr, str.data(), std::min<size_t>(str.size(), getSize(handle)));
 }
 

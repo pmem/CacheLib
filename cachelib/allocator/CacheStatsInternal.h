@@ -51,6 +51,9 @@ struct Stats {
   // number of remove calls that resulted in a ram hit
   TLCounter numCacheRemoveRamHits{0};
 
+  // number of item destructor calls from ram
+  TLCounter numRamDestructorCalls{0};
+
   // number of nvm gets
   TLCounter numNvmGets{0};
 
@@ -59,6 +62,12 @@ struct Stats {
 
   // number of nvm misses
   TLCounter numNvmGetMiss{0};
+
+  // number of nvm isses due to internal errors
+  TLCounter numNvmGetMissErrs{0};
+
+  // number of nvm misses due to inflight remove on the same key
+  TLCounter numNvmGetMissDueToInflightRemove{0};
 
   // number of nvm gets that are expired
   TLCounter numNvmGetMissExpired{0};
@@ -106,6 +115,13 @@ struct Stats {
   // number of evictions that were already expired
   AtomicCounter numNvmExpiredEvict{0};
 
+  // number of item destructor calls from nvm
+  AtomicCounter numNvmDestructorCalls{0};
+
+  // number of RefcountOverflow happens causing item destructor
+  // being skipped in nvm
+  AtomicCounter numNvmDestructorRefcountOverflow{0};
+
   // number of entries that were clean in RAM, but evicted and rewritten to
   // nvmcache because the nvmcache version was evicted
   AtomicCounter numNvmPutFromClean{0};
@@ -121,6 +137,14 @@ struct Stats {
 
   // attempts made from nvm cache to allocate an item for promotion
   TLCounter numNvmAllocAttempts{0};
+
+  // attempts made from nvm cache to allocate an item for its destructor
+  TLCounter numNvmAllocForItemDestructor{0};
+  // heap allocate errors for item destrutor
+  TLCounter numNvmItemDestructorAllocErrors{0};
+
+  // the number of allocated items that are permanent
+  TLCounter numPermanentItems{0};
 
   // the number of allocated and CHAINED items that are parents (i.e.,
   // consisting of at least one chained child)
@@ -139,6 +163,9 @@ struct Stats {
   // the number times a refcount overflow occurred, resulting in an exception
   // being thrown
   AtomicCounter numRefcountOverflow{0};
+
+  // number of exception occurred inside item destructor
+  AtomicCounter numDestructorExceptions{0};
 
   // The number of slabs being released right now.
   // This must be zero when `saveState()` is called.

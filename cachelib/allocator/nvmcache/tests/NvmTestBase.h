@@ -30,9 +30,14 @@ using AllocatorT = LruAllocator;
 using Item = AllocatorT::Item;
 using ItemHandle = AllocatorT::ItemHandle;
 using ChainedAllocs = AllocatorT::ChainedAllocs;
+using DestructorData = typename AllocatorT::DestructorData;
+using ChainedItemIter = AllocatorT::ChainedItemIter;
+using DestructedData = AllocatorT::DestructorData;
 
 class NvmCacheTest : public testing::Test {
  public:
+  using NvmCacheT = typename AllocatorT::NvmCacheT;
+
   NvmCacheTest();
   ~NvmCacheTest();
 
@@ -47,6 +52,9 @@ class NvmCacheTest : public testing::Test {
 
   // fetch the key. if _ramOnly_ then we only fetch it if it is in RAM.
   ItemHandle fetch(folly::StringPiece key, bool ramOnly);
+
+  // fetch the key to write. if _ramOnly_ then we only fetch it if it is in RAM.
+  ItemHandle fetchToWrite(folly::StringPiece key, bool ramOnly);
 
   // similar to fetch, but only check if it exists
   bool checkKeyExists(folly::StringPiece key, bool ramOnly);
@@ -103,15 +111,40 @@ class NvmCacheTest : public testing::Test {
                         SlabReleaseMode::kRebalance);
   }
 
+  NvmCacheT* getNvmCache() {
+    return cache_ ? cache_->nvmCache_.get() : nullptr;
+  }
+
+  std::unique_ptr<NvmItem> makeNvmItem(const ItemHandle& handle) {
+    return getNvmCache()->makeNvmItem(handle);
+  }
+
+  std::unique_ptr<folly::IOBuf> createItemAsIOBuf(folly::StringPiece key,
+                                                  const NvmItem& dItem) {
+    return getNvmCache()->createItemAsIOBuf(key, dItem);
+  }
+
+  template <typename... Params>
+  void evictCB(Params&&... args) {
+    getNvmCache()->evictCB(std::forward<Params>(args)...);
+  }
+
+  folly::Range<ChainedItemIter> viewAsChainedAllocsRange(folly::IOBuf* parent) {
+    return getNvmCache()->viewAsChainedAllocsRange(parent);
+  }
+
  protected:
   // Helper for ShardHashIsNotFillMapHash because we're the friend of NvmCache.
   std::pair<size_t, size_t> getNvmShardAndHashForKey(folly::StringPiece key) {
-    using NvmCacheT = typename AllocatorT::NvmCacheT;
     auto shard = NvmCacheT::getShardForKey(key);
     auto hash =
         typename NvmCacheT::FillMap{}.hash_function()(key) % NvmCacheT::kShards;
     return std::make_pair(shard, hash);
   }
+
+  void verifyItemInIOBuf(const std::string& key,
+                         const ItemHandle& handle,
+                         folly::IOBuf* iobuf);
 
   folly::dynamic options_;
   navy::NavyConfig config_;

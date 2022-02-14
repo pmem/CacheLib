@@ -60,6 +60,11 @@ class Driver final : public AbstractCache {
   Driver& operator=(const Driver&) = delete;
   ~Driver() override;
 
+  // Return true if item is considered a "large item". This is meant to be
+  // a very fast check to verify a key & value pair will be considered as
+  // "small" or "large" objects.
+  bool isItemLarge(BufferView key, BufferView value) const override;
+
   // synchronous fast lookup if a key probably exists in the cache,
   // it can return a false positive result. this provides an optimization
   // to skip the heavy lookup operation when key doesn't exist in the cache.
@@ -97,6 +102,7 @@ class Driver final : public AbstractCache {
   Status lookupAsync(BufferView key, LookupCallback cb) override;
 
   // remove the key from cache
+  // @param key  the item key to be removed
   // @return a status indicates success or failure, and the reason for failure
   Status remove(BufferView key) override;
 
@@ -145,7 +151,7 @@ class Driver final : public AbstractCache {
   //   - second: the other engine to remove key
   std::pair<Engine&, Engine&> select(BufferView key, BufferView value) const;
   void updateLookupStats(Status status) const;
-  Status removeHashedKey(HashedKey hk);
+  Status removeHashedKey(HashedKey hk, bool& skipSmallItemCache);
   bool admissionTest(HashedKey hk, BufferView value) const;
 
   const uint32_t smallItemMaxSize_{};
@@ -162,18 +168,21 @@ class Driver final : public AbstractCache {
   std::unique_ptr<Engine> smallItemCache_;
   std::unique_ptr<AdmissionPolicy> admissionPolicy_;
 
-  mutable AtomicCounter insertCount_;
+  // thread local counters in synchronized path
+  mutable TLCounter insertCount_;
+  mutable TLCounter lookupCount_;
+  mutable TLCounter removeCount_;
+  mutable TLCounter rejectedCount_;
+  mutable TLCounter rejectedConcurrentInsertsCount_;
+  mutable TLCounter rejectedParcelMemoryCount_;
+  mutable TLCounter rejectedBytes_;
+  mutable TLCounter acceptedCount_;
+  mutable TLCounter acceptedBytes_;
+
+  // atomic counters in asynchronized path
   mutable AtomicCounter succInsertCount_;
-  mutable AtomicCounter lookupCount_;
   mutable AtomicCounter succLookupCount_;
-  mutable AtomicCounter removeCount_;
   mutable AtomicCounter succRemoveCount_;
-  mutable AtomicCounter rejectedCount_;
-  mutable AtomicCounter rejectedConcurrentInsertsCount_;
-  mutable AtomicCounter rejectedParcelMemoryCount_;
-  mutable AtomicCounter rejectedBytes_;
-  mutable AtomicCounter acceptedCount_;
-  mutable AtomicCounter acceptedBytes_;
   mutable AtomicCounter ioErrorCount_;
   mutable AtomicCounter parcelMemory_; // In bytes
   mutable AtomicCounter concurrentInserts_;

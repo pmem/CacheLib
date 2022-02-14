@@ -48,8 +48,12 @@ enum class Status {
 };
 
 enum class DestructorEvent {
+  // space is recycled (item evicted)
   Recycled,
+  // item is removed from NVM
   Removed,
+  // item already in the queue but failed to put into NVM
+  PutFailed,
 };
 
 // @key and @value are valid only during this callback invocation

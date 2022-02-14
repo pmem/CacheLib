@@ -19,16 +19,21 @@
 #include <folly/Format.h>
 #include <folly/Random.h>
 
+#include <stdexcept>
+
 #include "cachelib/navy/admission_policy/DynamicRandomAP.h"
 #include "cachelib/navy/admission_policy/RejectRandomAP.h"
 #include "cachelib/navy/bighash/BigHash.h"
 #include "cachelib/navy/block_cache/BlockCache.h"
 #include "cachelib/navy/block_cache/FifoPolicy.h"
-#include "cachelib/navy/block_cache/HitsReinsertionPolicy.h"
 #include "cachelib/navy/block_cache/LruPolicy.h"
-#include "cachelib/navy/block_cache/PercentageReinsertionPolicy.h"
 #include "cachelib/navy/driver/Driver.h"
 #include "cachelib/navy/serialization/RecordIO.h"
+
+/* O_DIRECT not available on Mac OS */
+#ifndef O_DIRECT
+#define O_DIRECT 0
+#endif
 
 namespace facebook {
 namespace cachelib {
@@ -93,26 +98,19 @@ class BlockCacheProtoImpl final : public BlockCacheProto {
     config_.cleanRegionsPool = n;
   }
 
-  void setHitsReinsertionPolicy(uint8_t reinsertionThreshold) override {
-    if (config_.reinsertionPolicy) {
-      throw std::invalid_argument("There's already a reinsertion policy set.");
-    }
-    config_.reinsertionPolicy =
-        std::make_unique<HitsReinsertionPolicy>(reinsertionThreshold);
-  }
-
-  void setPercentageReinsertionPolicy(uint32_t percentage) override {
-    if (config_.reinsertionPolicy) {
-      throw std::invalid_argument("There's already a reinsertion policy set.");
-    }
-    config_.reinsertionPolicy =
-        std::make_unique<PercentageReinsertionPolicy>(percentage);
+  void setReinsertionConfig(
+      const BlockCacheReinsertionConfig& reinsertionConfig) override {
+    config_.reinsertionConfig = reinsertionConfig;
   }
 
   void setDevice(Device* device) { config_.device = device; }
 
   void setNumInMemBuffers(uint32_t numInMemBuffers) override {
     config_.numInMemBuffers = numInMemBuffers;
+  }
+
+  void setItemDestructorEnabled(bool itemDestructorEnabled) override {
+    config_.itemDestructorEnabled = itemDestructorEnabled;
   }
 
   std::unique_ptr<Engine> create(JobScheduler& scheduler,
@@ -294,6 +292,7 @@ folly::File openCacheFile(const std::string& fileName,
   // might not support o_direct. Hence, we might have to default to avoiding
   // o_direct in those cases.
   folly::File f;
+
   try {
     f = folly::File(fileName.c_str(), flags | O_DIRECT);
   } catch (const std::system_error& e) {
@@ -301,10 +300,13 @@ folly::File openCacheFile(const std::string& fileName,
       XLOG(ERR) << "Failed to open with o-direct, trying without. Error: "
                 << e.what();
       f = folly::File(fileName.c_str(), flags);
+    } else {
+      throw;
     }
   }
   XDCHECK_GE(f.fd(), 0);
 
+#ifndef MISSING_FALLOCATE
   // TODO: T95780876 detect if file exists and is of expected size. If not,
   // automatically fallocate the file or ftruncate the file.
   if (truncate && ::fallocate(f.fd(), 0, 0, size) < 0) {
@@ -313,11 +315,14 @@ folly::File openCacheFile(const std::string& fileName,
         std::system_category(),
         folly::sformat("failed fallocate with size {}", size));
   }
+#endif
 
+#ifndef MISSING_FADVISE
   if (::posix_fadvise(f.fd(), 0, size, POSIX_FADV_DONTNEED) < 0) {
     throw std::system_error(errno, std::system_category(),
                             "Error fadvising cache file");
   }
+#endif
 
   return f;
 }

@@ -47,6 +47,10 @@ TYPED_TEST(BaseAllocatorTest, Removals) { this->testRemovals(); }
 // other pool without evictions.
 TYPED_TEST(BaseAllocatorTest, Pools) { this->testPools(); }
 
+// test whether read handle will return read-only memory and write handle can
+// return mutable memory
+TYPED_TEST(BaseAllocatorTest, ReadWriteHandle) { this->testReadWriteHandle(); }
+
 // make some allocations without evictions and ensure that we are able to
 // fetch them.
 TYPED_TEST(BaseAllocatorTest, Find) { this->testFind(); }
@@ -57,6 +61,9 @@ TYPED_TEST(BaseAllocatorTest, Remove) { this->testRemove(); }
 
 // trigger evictions and ensure that the eviction call back gets called.
 TYPED_TEST(BaseAllocatorTest, RemoveCb) { this->testRemoveCb(); }
+
+// trigger evictions and ensure that the eviction call back gets called.
+TYPED_TEST(BaseAllocatorTest, ItemDestructor) { this->testItemDestructor(); }
 
 TYPED_TEST(BaseAllocatorTest, RemoveCbSlabReleaseMoving) {
   this->testRemoveCbSlabReleaseMoving();
@@ -504,9 +511,6 @@ TEST_F(Lru2QAllocatorTest, MMReconfigure) {
   mmConfig.coldSizePercent = 0;
   this->testMM2QReconfigure(mmConfig);
 }
-
-using LruAllocatorWithMovingTest = BaseAllocatorTest<LruAllocator>;
-using TinyLFUAllocatorWithMovingTest = BaseAllocatorTest<TinyLFUAllocator>;
 
 } // namespace
 

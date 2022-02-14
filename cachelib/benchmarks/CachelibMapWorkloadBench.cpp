@@ -63,8 +63,7 @@ void insertFrozenMap(StdUnorderedMap& m, folly::StringPiece name) {
   apache::thrift::frozen::freezeToString(m, frozenContent);
   auto item = cache->allocate(poolId, name, frozenContent.size());
   XDCHECK(item);
-  std::memcpy(item->getWritableMemory(), frozenContent.data(),
-              frozenContent.size());
+  std::memcpy(item->getMemory(), frozenContent.data(), frozenContent.size());
   cache->insertOrReplace(item);
 }
 
@@ -114,7 +113,9 @@ void setup() {
 
 void benchCachelibMap() {
   auto getCachelibMap = [] {
-    auto it = cache->find(kClMap);
+    // TODO(jiayueb): remove "AccessMode::kRead" after changing fromItemHandle
+    // to take a ReadHandle
+    auto it = cache->find(kClMap, AccessMode::kRead);
     XDCHECK(it);
     return CachelibMap::fromItemHandle(*cache, std::move(it));
   };

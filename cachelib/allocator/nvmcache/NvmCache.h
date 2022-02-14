@@ -17,6 +17,7 @@
 #pragma once
 
 #include <folly/container/F14Map.h>
+#include <folly/container/F14Set.h>
 #include <folly/dynamic.h>
 #include <folly/hash/Hash.h>
 #include <folly/json.h>
@@ -40,6 +41,7 @@
 #include "cachelib/common/Exceptions.h"
 #include "cachelib/common/Utils.h"
 #include "cachelib/navy/common/Device.h"
+#include "folly/Range.h"
 
 namespace facebook {
 namespace cachelib {
@@ -54,10 +56,16 @@ template <typename C>
 class NvmCache {
  public:
   using Item = typename C::Item;
+  using ChainedItem = typename Item::ChainedItem;
   using ChainedItemIter = typename C::ChainedItemIter;
+  using ItemDestructor = typename C::ItemDestructor;
+  using DestructorData = typename C::DestructorData;
 
   // Context passed in encodeCb or decodeCb. If the item has children,
   // they are passed in the form of a folly::Range.
+  // Chained items must be iterated though @chainedItemRange.
+  // Other APIs used to access chained items are not compatible and should not
+  // be used.
   struct EncodeDecodeContext {
     Item& item;
     folly::Range<ChainedItemIter> chainedItemRange;
@@ -81,6 +89,7 @@ class NvmCache {
   using DeviceEncryptor = navy::DeviceEncryptor;
 
   using ItemHandle = typename C::ItemHandle;
+  using ReadHandle = typename C::ReadHandle;
   using DeleteTombStoneGuard = typename TombStones::Guard;
   using PutToken = typename InFlightPuts::PutToken;
 
@@ -124,7 +133,10 @@ class NvmCache {
   // @param c         the cache instance using nvmcache
   // @param config    the config for nvmcache
   // @param truncate  if we should truncate the nvmcache store
-  NvmCache(C& c, Config config, bool truncate);
+  NvmCache(C& c,
+           Config config,
+           bool truncate,
+           const ItemDestructor& itemDestructor);
 
   // Look up item by key
   // @param key         key to lookup
@@ -147,7 +159,7 @@ class NvmCache {
   // @param token       the put token for the item. this must have been
   //                    obtained before enqueueing the put to maintain
   //                    consistency
-  void put(const ItemHandle& hdl, PutToken token);
+  void put(ItemHandle& hdl, PutToken token);
 
   // returns the current state of whether nvmcache is enabled or not. nvmcache
   // can be disabled if the backend implementation ends up in a corrupt state
@@ -201,7 +213,40 @@ class NvmCache {
     return navyCache_->updateMaxRateForDynamicRandomAP(maxRate);
   }
 
+  // This lock is to protect concurrent NvmCache evictCB and CacheAllocator
+  // remove/insertOrReplace/invalidateNvm.
+  // This lock scope within the above functions is
+  // 1. check DRAM visibility in NvmCache evictCB
+  // 2. modify DRAM visibility in CacheAllocator remove/insertOrReplace
+  // 3. check/modify NvmClean, NvmEvicted flag
+  // 4. check/modify itemRemoved_ set
+  // The lock ensures that the items in itemRemoved_ must exist in nvm, and nvm
+  // eviction must erase item from itemRemoved_, so there won't memory leak or
+  // influence to future item with same key.
+  std::unique_lock<std::mutex> getItemDestructorLock(
+      folly::StringPiece key) const {
+    using LockType = std::unique_lock<std::mutex>;
+    return itemDestructor_ ? LockType{itemDestructorMutex_[getShardForKey(key)]}
+                           : LockType{};
+  }
+
+  // For items with this key that are present in NVM, mark the DRAM to be the
+  // authoritative copy for destructor events. This is usually done when items
+  // are in-place mutated/removed/replaced and the nvm copy is being
+  // invalidated by calling NvmCache::remove subsequently.
+  //
+  // caller must make sure itemDestructorLock is locked,
+  // and the item is present in NVM (NvmClean set and NvmEvicted flag unset).
+  void markNvmItemRemovedLocked(folly::StringPiece key);
+
  private:
+  // returns the itemRemoved_ set size
+  // it is the number of items were both in dram and nvm
+  // and were removed from dram but not yet removed from nvm
+  uint64_t getNvmItemRemovedSize() const;
+
+  bool checkAndUnmarkItemRemovedLocked(folly::StringPiece key);
+
   detail::Stats& stats() { return CacheAPIWrapperForNvm<C>::getStats(cache_); }
 
   // creates the RAM item from NvmItem.
@@ -212,6 +257,21 @@ class NvmCache {
   // @param   return an item handle allocated and initialized to the right state
   //          based on the NvmItem
   ItemHandle createItem(folly::StringPiece key, const NvmItem& nvmItem);
+
+  // creates the item into IOBuf from NvmItem, if the item has chained items,
+  // chained IOBufs will be created.
+  // @param key   key for the dipper item
+  // @param nvmItem contents for the key
+  //
+  // @return an IOBuf allocated for the item and initialized the memory to Item
+  //          based on the NvmItem
+  std::unique_ptr<folly::IOBuf> createItemAsIOBuf(folly::StringPiece key,
+                                                  const NvmItem& dItem);
+  // Returns an iterator to the item's chained IOBufs. The order of
+  // iteration on the item will be LIFO of the addChainedItem calls.
+  // This is only used when we have to create cache items on heap (IOBuf) for
+  // the purpose of ItemDestructor.
+  folly::Range<ChainedItemIter> viewAsChainedAllocsRange(folly::IOBuf*) const;
 
   // returns true if there is tombstone entry for the key.
   bool hasTombStone(folly::StringPiece key);
@@ -228,16 +288,20 @@ class NvmCache {
   struct GetCtx {
     NvmCache& cache;       //< the NvmCache instance
     const std::string key; //< key being fetched
-    std::vector<std::shared_ptr<WaitContext<ItemHandle>>> waiters; // list of
+    std::vector<std::shared_ptr<WaitContext<ReadHandle>>> waiters; // list of
                                                                    // waiters
     ItemHandle it; // will be set when Context is being filled
     util::LatencyTracker tracker_;
+    bool valid_;
 
     GetCtx(NvmCache& c,
            folly::StringPiece k,
-           std::shared_ptr<WaitContext<ItemHandle>> ctx,
+           std::shared_ptr<WaitContext<ReadHandle>> ctx,
            util::LatencyTracker tracker)
-        : cache(c), key(k.toString()), tracker_(std::move(tracker)) {
+        : cache(c),
+          key(k.toString()),
+          tracker_(std::move(tracker)),
+          valid_(true) {
       it.markWentToNvm();
       addWaiter(std::move(ctx));
     }
@@ -259,7 +323,7 @@ class NvmCache {
 
     // enqueue a waiter into the waiter list
     // @param  waiter       WaitContext
-    void addWaiter(std::shared_ptr<WaitContext<ItemHandle>> waiter) {
+    void addWaiter(std::shared_ptr<WaitContext<ReadHandle>> waiter) {
       XDCHECK(waiter);
       waiters.push_back(std::move(waiter));
     }
@@ -285,6 +349,10 @@ class NvmCache {
         }
       }
     }
+
+    void invalidate() { valid_ = false; }
+
+    bool isValid() const { return valid_; }
   };
 
   // Erase entry for the ctx from the fill map
@@ -293,6 +361,18 @@ class NvmCache {
     auto key = ctx.getKey();
     auto lock = getFillLock(key);
     getFillMap(key).erase(key);
+  }
+
+  // Erase entry for the ctx from the fill map
+  // @param     key   item key
+  void invalidateFill(folly::StringPiece key) {
+    auto shard = getShardForKey(key);
+    auto lock = getFillLockForShard(shard);
+    auto& map = getFillMapForShard(shard);
+    auto it = map.find(key);
+    if (it != map.end() && it->second) {
+      it->second->invalidate();
+    }
   }
 
   // Logs and disables navy usage
@@ -345,9 +425,6 @@ class NvmCache {
 
   static constexpr size_t kShards = 8192;
 
-  // threshold of classifying an item as large based on navy as the engine.
-  const size_t navySmallItemThreshold_{};
-
   // a map of all pending fills to prevent thundering herds
   struct {
     alignas(folly::hardware_destructive_interference_size) FillMap fills_;
@@ -368,6 +445,17 @@ class NvmCache {
   // to navy and in-flight gets into nvmcache that are not yet queued.
   std::array<InFlightPuts, kShards> inflightPuts_;
   std::array<TombStones, kShards> tombstones_;
+
+  const ItemDestructor itemDestructor_;
+
+  mutable std::array<std::mutex, kShards> itemDestructorMutex_;
+  // Used to track the keys of items present in NVM that should be excluded for
+  // executing Destructor upon eviction from NVM, if the item is not present in
+  // DRAM. The ownership of item destructor is already managed elsewhere for
+  // these keys. This data struct is updated prior to issueing NvmCache::remove
+  // to handle any racy eviction from NVM before the NvmCache::remove is
+  // finished.
+  std::array<folly::F14FastSet<std::string>, kShards> itemRemoved_;
 
   std::unique_ptr<cachelib::navy::AbstractCache> navyCache_;
 

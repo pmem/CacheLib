@@ -170,8 +170,8 @@ typename ShmManager::ShutDownRes ShmManager::writeActiveSegmentsToFile() {
 
   serialization::ShmManagerObject object;
 
-  object.shmVal_ref() = usePosix_ ? static_cast<int>(ShmVal::SHM_POSIX)
-                                  : static_cast<int>(ShmVal::SHM_SYS_V);
+  object.shmVal_ref() = usePosix_ ? static_cast<int8_t>(ShmVal::SHM_POSIX)
+                                  : static_cast<int8_t>(ShmVal::SHM_SYS_V);
 
   for (const auto& kv : nameToOpts_) {
     const auto& name = kv.first;
