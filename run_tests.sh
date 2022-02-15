@@ -4,6 +4,7 @@
 BLACKLIST="allocator-test-AllocationClassTest
 allocator-test-AllocatorTypeTest
 allocator-test-NvmCacheTests
+allocator-test-NavySetupTest
 common-test-TimeTests
 common-test-UtilTests
 shm-test-test_page_size"
