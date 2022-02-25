@@ -391,6 +391,7 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
 
     handle = acquire(new (memory) Item(key, size, creationTime, expiryTime));
     if (handle) {
+      stats_.shmTierStats[tid].usedSize.set(allocator_[tid]->getPoolSize(pid));
       handle.markNascent();
       (*stats_.fragmentationSize)[pid][cid].add(
           util::getFragmentation(*this, *handle));
@@ -1464,10 +1465,12 @@ CacheAllocator<CacheTrait>::findEviction(TierId tid, PoolId pid, ClassId cid) {
     // evict what we think as parent and see if the eviction of parent
     // recycles the child we intend to.
     
+    stats_.shmTierStats[tid].numEvictionAttempts.inc();
     ItemHandle toReleaseHandle = tryEvictToNextMemoryTier(tid, pid, itr);
     bool movedToNextTier = false;
     if(toReleaseHandle) {
       movedToNextTier = true;
+      stats_.shmTierStats[tid].numEvictionSuccess[pid][cid].inc();
     } else {
       toReleaseHandle =
           itr->isChainedItem()
@@ -2052,6 +2055,8 @@ CacheAllocator<CacheTrait>::find(typename Item::Key key, AccessMode mode) {
                            AllocatorApiResult::FOUND, handle->getSize(),
                            handle->getConfiguredTTL().count());
     }
+    auto tid = getTierId(*handle);
+    stats_.shmTierStats[tid].numGets.inc();
     return handle;
   }
 
@@ -2915,6 +2920,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
     const SlabReleaseContext& ctx, Item& item, util::Throttler& throttler) {
   XDCHECK(!config_.disableEviction);
 
+  const auto tid = getTierId(item);
   auto startTime = util::getCurrentTimeSec();
   while (true) {
     stats_.numEvictionAttempts.inc();
@@ -2942,7 +2948,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
     // last handle for the owner.
     if (owningHandle) {
       const auto allocInfo =
-          allocator_[getTierId(item)]->getAllocInfo(static_cast<const void*>(&item));
+          allocator_[tid]->getAllocInfo(static_cast<const void*>(&item));
       if (owningHandle->hasChainedItem()) {
         (*stats_.chainedItemEvictions)[allocInfo.poolId][allocInfo.classId]
             .inc();
@@ -3584,7 +3590,7 @@ void CacheAllocator<CacheTrait>::adjustHandleCountForThread_private(
 
 template <typename CacheTrait>
 void CacheAllocator<CacheTrait>::initStats() {
-  stats_.init();
+  stats_.init(numTiers_);
 
   // deserialize the fragmentation size of each thread.
   for (const auto& pid : *metadata_.fragmentationSize_ref()) {

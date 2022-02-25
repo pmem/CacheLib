@@ -641,6 +641,12 @@ class MemoryAllocator {
       && ptr < slabAllocator_.getSlabMemoryEnd();
   }
 
+  // fetch size of a particular pool
+  // @return size of the pool
+  size_t getPoolSize(PoolId id) {
+    return slabAllocator_.getSize(id);
+  }
+
  private:
   // @param memory    pointer to the memory.
   // @return          the MemoryPool corresponding to the memory.
