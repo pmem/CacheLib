@@ -30,6 +30,26 @@ struct GlobalCacheStats;
 
 namespace detail {
 
+using PerPoolClassAtomicCounters =
+      std::array<std::array<AtomicCounter, MemoryAllocator::kMaxClasses>,
+                 MemoryPoolManager::kMaxPools>;
+
+struct ShmTierStats {
+  // number of eviction attempts per tier
+  AtomicCounter numEvictionAttempts{0};
+
+  // number of eviction successes per tier
+  PerPoolClassAtomicCounters numEvictionSuccess;
+
+  // tier access count
+  AtomicCounter numGets{0};
+
+  // size used
+  AtomicCounter usedSize{0};
+};
+
+using AllShmTierStats = std::vector<ShmTierStats>;
+
 // collection of stats that are updated at a high frequency, making it
 // necessary to track them as thread local counters that are aggregated.
 struct Stats {
@@ -160,6 +180,9 @@ struct Stats {
   AtomicCounter numEvictionAttempts{0};
   AtomicCounter numEvictionSuccesses{0};
 
+  // shm tier stats
+  AllShmTierStats shmTierStats;
+
   // the number times a refcount overflow occurred, resulting in an exception
   // being thrown
   AtomicCounter numRefcountOverflow{0};
@@ -204,10 +227,6 @@ struct Stats {
   // we're currently writing into flash.
   mutable util::PercentileStats nvmPutSize_;
 
-  using PerPoolClassAtomicCounters =
-      std::array<std::array<AtomicCounter, MemoryAllocator::kMaxClasses>,
-                 MemoryPoolManager::kMaxPools>;
-
   // count of a stat for a specific allocation class
   using PerPoolClassTLCounters =
       std::array<std::array<TLCounter, MemoryAllocator::kMaxClasses>,
@@ -240,7 +259,7 @@ struct Stats {
   // Eviction failures because this item is being moved
   AtomicCounter evictFailMove{0};
 
-  void init();
+  void init(size_t numTiers);
 
   void populateGlobalCacheStats(GlobalCacheStats& ret) const;
 };

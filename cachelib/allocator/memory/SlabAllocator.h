@@ -323,6 +323,10 @@ class SlabAllocator {
                                    memorySize_);
   }
 
+  // Retrive size of a pool
+  // @return size of Pool
+  size_t getSize(PoolId id);
+
  private:
   // null Slab* presenttation. With 4M Slab size, a valid slab index would never
   // reach 2^16 - 1;
