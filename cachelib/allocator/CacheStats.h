@@ -302,6 +302,31 @@ namespace detail {
 struct Stats;
 }
 
+// Stats that apply to each cache tier
+struct CacheTierStats {
+  // total number of eviction attempts for a tier
+  uint64_t numEvictionAttempts;
+
+  // number of eviction attempt successes for a tier
+  uint64_t numEvictionSuccesses;
+
+  // number of access requests
+  uint64_t numHits;
+
+  // size of cache tier used
+  uint64_t usedSize;
+
+  CacheTierStats( uint64_t evicAttempts,
+                  uint64_t evicSuccesses,
+                  uint64_t accessCnt,
+                  uint64_t size ) :
+    numEvictionAttempts(evicAttempts),
+    numEvictionSuccesses(evicSuccesses),
+    numHits(accessCnt),
+    usedSize(size) {};
+};
+using AllCacheTiersStats = std::vector<CacheTierStats>;
+
 // Stats that apply globally in cache and
 // the ones that are aggregated over all pools
 struct GlobalCacheStats {
@@ -415,6 +440,9 @@ struct GlobalCacheStats {
 
   // number of evictions across all the pools in the cache.
   uint64_t numEvictions{0};
+
+  // individual stats for all tiers
+  AllCacheTiersStats tierStats;
 
   // number of allocation attempts with invalid input params.
   uint64_t invalidAllocs{0};

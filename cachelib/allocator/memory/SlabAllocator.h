@@ -378,6 +378,10 @@ class SlabAllocator {
   // shutsdown the memory locker if it is still running.
   void stopMemoryLocker();
 
+  // Retrive size of a pool
+  // @return size of Pool
+  size_t getSize(PoolId id);
+
   // lock serializing access to nextSlabAllocation_, freeSlabs_.
   mutable std::mutex lock_;
 
