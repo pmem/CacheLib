@@ -25,8 +25,28 @@ DECLARE_bool(report_api_latency);
 namespace facebook {
 namespace cachelib {
 namespace cachebench {
+
+struct TierStats {
+  uint64_t numEvictionAttempts{0};
+  uint64_t numEvictionSuccess{0};
+  uint64_t numGets{0};
+  uint64_t usedSize{0};
+
+  TierStats(uint64_t evicAttempts,
+            uint64_t evicSuccesses,
+            uint64_t gets,
+            uint64_t size ) :
+    numEvictionAttempts(evicAttempts),
+    numEvictionSuccess(evicSuccesses),
+    numGets(gets),
+    usedSize(size) {};
+};
+using AllTierStats = std::vector<TierStats>;
+
 struct Stats {
   uint64_t numEvictions{0};
+  AllTierStats tierStats;
+
   uint64_t numItems{0};
 
   uint64_t allocAttempts{0};
@@ -114,7 +134,16 @@ struct Stats {
                           invertPctFn(allocFailures, allocAttempts))
         << std::endl;
     out << folly::sformat("RAM Evictions : {:,}", numEvictions) << std::endl;
-
+    for (auto i = 0U; i < tierStats.size(); i++) {
+      out << folly::sformat("Tier {:,} -> Eviction attempts: {:,}", i,
+                              tierStats[i].numEvictionAttempts) << std::endl;
+      out << folly::sformat("Tier {:,} -> Eviction success: {:,}", i,
+                              tierStats[i].numEvictionSuccess) << std::endl;
+      out << folly::sformat("Tier {:,} -> Cache Hits: {:,}", i,
+                              tierStats[i].numGets) << std::endl;
+      out << folly::sformat("Tier {:,} -> Used Size: {:,}B", i,
+                              tierStats[i].usedSize) << std::endl;
+    }
     if (numCacheGets > 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;
       out << folly::sformat("Hit Ratio     : {:6.2f}%", overallHitRatio)
