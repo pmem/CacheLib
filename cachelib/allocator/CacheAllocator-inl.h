@@ -2924,6 +2924,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
   auto startTime = util::getCurrentTimeSec();
   while (true) {
     stats_.numEvictionAttempts.inc();
+    stats_.shmTierStats[tid].numEvictionAttempts.inc();
 
     // if the item is already in a state where only the moving bit is set,
     // nothing needs to be done. We simply need to unmark moving bit and free
@@ -2958,6 +2959,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
       }
 
       stats_.numEvictionSuccesses.inc();
+      stats_.shmTierStats[tid].numEvictionSuccess[allocInfo.poolId][allocInfo.classId].inc();
 
       // we have the last handle. no longer need to hold on to the moving bit
       item.unmarkMoving();
