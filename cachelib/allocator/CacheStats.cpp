@@ -22,7 +22,7 @@ namespace facebook {
 namespace cachelib {
 namespace detail {
 
-void Stats::init() {
+void Stats::init(size_t numTiers) {
   cacheHits = std::make_unique<PerPoolClassTLCounters>();
   allocAttempts = std::make_unique<PerPoolClassAtomicCounters>();
   fragmentationSize = std::make_unique<PerPoolClassAtomicCounters>();
@@ -42,6 +42,9 @@ void Stats::init() {
   initToZero(*fragmentationSize);
   initToZero(*chainedItemEvictions);
   initToZero(*regularItemEvictions);
+
+  // initialize tier stats
+  shmTierStats.resize(numTiers);
 }
 
 template <int>
@@ -49,7 +52,7 @@ struct SizeVerify {};
 
 void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
 #ifndef SKIP_SIZE_VERIFY
-  SizeVerify<sizeof(Stats)> a = SizeVerify<16144>{};
+  SizeVerify<sizeof(Stats)> a = SizeVerify<16176>{};
   std::ignore = a;
 #endif
   ret.numCacheGets = numCacheGets.get();
@@ -124,6 +127,13 @@ void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
   ret.numEvictions = accum(*chainedItemEvictions);
   ret.numEvictions += accum(*regularItemEvictions);
 
+  for (auto& tier : shmTierStats) {
+    ret.tierStats.emplace_back(
+      tier.numEvictionAttempts.get(),
+      tier.numEvictionSuccesses.get(),
+      tier.numHits.get(),
+      tier.usedSize.get());
+  }
   ret.invalidAllocs = invalidAllocs.get();
   ret.numRefcountOverflow = numRefcountOverflow.get();
 
