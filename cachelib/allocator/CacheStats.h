@@ -487,6 +487,16 @@ struct GlobalCacheStats {
   int64_t numActiveHandles;
 };
 
+// Stats that apply to each cache tier and
+// the ones that are aggregated over all pools
+struct CacheTierStats {
+  // number of eviction attempts across all tiers
+  std::array<uint64_t, CacheAllocator::kMaxTiers>
+      numEvictionAttempts;
+  std::array<uint64_t, CacheAllocator::kMaxTiers>
+      numEvictionSuccesses;
+};
+
 struct CacheMemoryStats {
   // current memory used for cache in bytes. This excludes the memory used for
   // headers. This can change as memory is advised and reclaimed.

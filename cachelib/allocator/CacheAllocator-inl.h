@@ -2915,9 +2915,11 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
     const SlabReleaseContext& ctx, Item& item, util::Throttler& throttler) {
   XDCHECK(!config_.disableEviction);
 
+  const auto tid = getTierId(item);
   auto startTime = util::getCurrentTimeSec();
   while (true) {
     stats_.numEvictionAttempts.inc();
+    stats_.numTierEvictionAttempts_[tid].inc();
 
     // if the item is already in a state where only the moving bit is set,
     // nothing needs to be done. We simply need to unmark moving bit and free
@@ -2942,7 +2944,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
     // last handle for the owner.
     if (owningHandle) {
       const auto allocInfo =
-          allocator_[getTierId(item)]->getAllocInfo(static_cast<const void*>(&item));
+          allocator_[tid]->getAllocInfo(static_cast<const void*>(&item));
       if (owningHandle->hasChainedItem()) {
         (*stats_.chainedItemEvictions)[allocInfo.poolId][allocInfo.classId]
             .inc();
@@ -2952,6 +2954,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
       }
 
       stats_.numEvictionSuccesses.inc();
+      stats_.numTierEvictionSuccesses_[tid].inc();
 
       // we have the last handle. no longer need to hold on to the moving bit
       item.unmarkMoving();
@@ -3663,6 +3666,13 @@ GlobalCacheStats CacheAllocator<CacheTrait>::getGlobalCacheStats() const {
   ret.reaperStats = getReaperStats();
   ret.numActiveHandles = getNumActiveHandles();
 
+  return ret;
+}
+
+template <typename CacheTrait>
+CacheTierStats CacheAllocator<CacheTrait>::getCacheTierStats() const {
+  CacheTierStats ret{};
+  stats_.populateCacheTierStats(ret);
   return ret;
 }
 

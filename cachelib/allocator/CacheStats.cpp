@@ -135,6 +135,13 @@ void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
   ret.numAbortedSlabReleases = numAbortedSlabReleases.get();
 }
 
+void Stats::populateCacheTierStats(CacheTierStats& ret) const {
+  for (auto tid = 0; tid < CacheAllocator::kMaxTiers; tid++) {
+    ret.numEvictionAttempts.emplace_back(numTierEvictionAttempts_[tid].get());
+    ret.numEvictionSuccesses.emplace_back(numTierEvictionSuccesses_[tid].get());
+  }
+}
+
 } // namespace detail
 
 PoolStats& PoolStats::operator+=(const PoolStats& other) {

@@ -27,6 +27,9 @@ namespace cachelib {
 namespace cachebench {
 struct Stats {
   uint64_t numEvictions{0};
+  std::vector<uint64_t> numTierEvictionAttempts;
+  std::vector<uint64_t> numTierEvictionSuccesses;
+
   uint64_t numItems{0};
 
   uint64_t allocAttempts{0};
