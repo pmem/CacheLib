@@ -20,6 +20,7 @@
 
 #include "cachelib/allocator/CacheAllocator.h"
 #include "cachelib/allocator/RebalanceStrategy.h"
+#include "cachelib/allocator/BackgroundEvictorStrategy.h"
 #include "cachelib/cachebench/util/JSONConfig.h"
 #include "cachelib/common/Ticker.h"
 #include "cachelib/navy/common/Device.h"
@@ -71,7 +72,11 @@ struct CacheConfig : public JSONConfig {
 
   uint64_t cacheSizeMB{0};
   uint64_t poolRebalanceIntervalSec{0};
+  uint64_t backgroundEvictorIntervalSec{0};
   std::string rebalanceStrategy;
+  std::string backgroundEvictorStrategy;
+  double freeThreshold{0.01}; //keep 1% of space free
+  uint32_t nKeepFree{100}; //keep at most 100 slots free
   uint64_t rebalanceMinSlabs{1};
   double rebalanceDiffRatio{0.25};
   bool moveOnSlabRelease{false};
@@ -288,6 +293,7 @@ struct CacheConfig : public JSONConfig {
   CacheConfig() {}
 
   std::shared_ptr<RebalanceStrategy> getRebalanceStrategy() const;
+  std::shared_ptr<BackgroundEvictorStrategy> getBackgroundEvictorStrategy() const;
 };
 } // namespace cachebench
 } // namespace cachelib

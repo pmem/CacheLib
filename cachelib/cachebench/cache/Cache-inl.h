@@ -59,6 +59,10 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   allocatorConfig_.enablePoolRebalancing(
       config_.getRebalanceStrategy(),
       std::chrono::seconds(config_.poolRebalanceIntervalSec));
+  
+  allocatorConfig_.enableBackgroundEvictor(
+      config_.getBackgroundEvictorStrategy(),
+      std::chrono::seconds(config_.backgroundEvictorIntervalSec));
 
   if (config_.moveOnSlabRelease && movingSync != nullptr) {
     allocatorConfig_.enableMovingOnSlabRelease(

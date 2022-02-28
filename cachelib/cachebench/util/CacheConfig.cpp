@@ -20,6 +20,9 @@
 #include "cachelib/allocator/LruTailAgeStrategy.h"
 #include "cachelib/allocator/RandomStrategy.h"
 
+#include "cachelib/allocator/KeepFreeStrategy.h"
+#include "cachelib/allocator/FreeThresholdStrategy.h"
+
 namespace facebook {
 namespace cachelib {
 namespace cachebench {
@@ -27,10 +30,15 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, allocator);
   JSONSetVal(configJson, cacheSizeMB);
   JSONSetVal(configJson, poolRebalanceIntervalSec);
+  JSONSetVal(configJson, backgroundEvictorIntervalSec);
   JSONSetVal(configJson, moveOnSlabRelease);
   JSONSetVal(configJson, rebalanceStrategy);
   JSONSetVal(configJson, rebalanceMinSlabs);
   JSONSetVal(configJson, rebalanceDiffRatio);
+  
+  JSONSetVal(configJson, backgroundEvictorStrategy);
+  JSONSetVal(configJson, freeThreshold);
+  JSONSetVal(configJson, nKeepFree);
 
   JSONSetVal(configJson, htBucketPower);
   JSONSetVal(configJson, htLockPower);
@@ -104,7 +112,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   // if you added new fields to the configuration, update the JSONSetVal
   // to make them available for the json configs and increment the size
   // below
-  checkCorrectSize<CacheConfig, 752>();
+  checkCorrectSize<CacheConfig, 808>();
 
   if (numPools != poolSizes.size()) {
     throw std::invalid_argument(folly::sformat(
@@ -131,6 +139,21 @@ std::shared_ptr<RebalanceStrategy> CacheConfig::getRebalanceStrategy() const {
     // use random strategy to just trigger some slab release.
     return std::make_shared<RandomStrategy>(
         RandomStrategy::Config{static_cast<unsigned int>(rebalanceMinSlabs)});
+  }
+}
+
+std::shared_ptr<BackgroundEvictorStrategy> CacheConfig::getBackgroundEvictorStrategy() const {
+  if (backgroundEvictorIntervalSec == 0) {
+    return nullptr;
+  }
+
+  if (backgroundEvictorStrategy == "free-threshold") {
+    return std::make_shared<FreeThresholdStrategy>(freeThreshold);
+  } else if (backgroundEvictorStrategy == "keep-free") {
+    return std::make_shared<KeepFreeStrategy>(nKeepFree);
+  } else {
+    //default!
+    return std::make_shared<FreeThresholdStrategy>(freeThreshold);
   }
 }
 

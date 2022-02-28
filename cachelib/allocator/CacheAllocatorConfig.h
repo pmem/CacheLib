@@ -265,6 +265,12 @@ class CacheAllocatorConfig {
       std::chrono::seconds regularInterval,
       std::chrono::seconds ccacheInterval,
       uint32_t ccacheStepSizePercent);
+  
+  // Enable the background evictor - scans a tier to look for objects
+  // to evict to the next tier
+  CacheAllocatorConfig& enableBackgroundEvictor(
+      std::shared_ptr<BackgroundEvictorStrategy> backgroundEvictorStrategy,
+      std::chrono::seconds regularInterval);
 
   // This enables an optimization for Pool rebalancing and resizing.
   // The rough idea is to ensure only the least useful items are evicted when
@@ -335,6 +341,12 @@ class CacheAllocatorConfig {
     return (regularPoolOptimizeInterval.count() > 0 ||
             compactCacheOptimizeInterval.count() > 0) &&
            poolOptimizeStrategy != nullptr;
+  }
+  
+  // @return whether background evictor thread is enabled
+  bool backgroundEvictorEnabled() const noexcept {
+    return backgroundEvictorInterval.count() > 0 &&
+           backgroundEvictorStrategy != nullptr;
   }
 
   // @return whether memory monitor is enabled
@@ -426,6 +438,9 @@ class CacheAllocatorConfig {
 
   // time interval to sleep between iterators of rebalancing the pools.
   std::chrono::milliseconds poolRebalanceInterval{std::chrono::seconds{1}};
+  
+  // time interval to sleep between runs of the background evictor
+  std::chrono::milliseconds backgroundEvictorInterval{std::chrono::seconds{1}};
 
   // Free slabs pro-actively if the ratio of number of freeallocs to
   // the number of allocs per slab in a slab class is above this
@@ -437,6 +452,9 @@ class CacheAllocatorConfig {
   // rebalance to avoid alloc fialures.
   std::shared_ptr<RebalanceStrategy> defaultPoolRebalanceStrategy{
       new RebalanceStrategy{}};
+  
+  // rebalance to avoid alloc fialures.
+  std::shared_ptr<BackgroundEvictorStrategy> backgroundEvictorStrategy;
 
   // time interval to sleep between iterations of pool size optimization,
   // for regular pools and compact caches
@@ -960,6 +978,15 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enablePoolRebalancing(
     throw std::invalid_argument(
         "Invalid rebalance strategy for the cache allocator.");
   }
+  return *this;
+}
+
+template <typename T>
+CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enableBackgroundEvictor(
+    std::shared_ptr<BackgroundEvictorStrategy> strategy,
+    std::chrono::seconds interval) {
+  backgroundEvictorStrategy = strategy;
+  backgroundEvictorInterval = interval;
   return *this;
 }
 

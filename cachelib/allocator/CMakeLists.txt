@@ -27,6 +27,7 @@ add_library (cachelib_allocator
   ${SERIALIZE_THRIFT_FILES}
   ${DATASTRUCT_SERIALIZE_THRIFT_FILES}
   ${MEMORY_SERIALIZE_THRIFT_FILES}
+    BackgroundEvictorStrategy.cpp
     CacheAllocator.cpp
     Cache.cpp
     CacheDetails.cpp
@@ -35,8 +36,10 @@ add_library (cachelib_allocator
     CCacheManager.cpp
     ContainerTypes.cpp
     FreeMemStrategy.cpp
+    FreeThresholdStrategy.cpp
     HitsPerSlabStrategy.cpp
     LruTailAgeStrategy.cpp
+    KeepFreeStrategy.cpp
     MarginalHitsOptimizeStrategy.cpp
     MarginalHitsStrategy.cpp
     memory/AllocationClass.cpp
