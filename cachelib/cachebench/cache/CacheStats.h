@@ -32,6 +32,9 @@ struct Stats {
   uint64_t allocAttempts{0};
   uint64_t allocFailures{0};
 
+  uint64_t numBackgroundEvictions{0};
+  uint64_t numBackgroundEvictorRuns{0};
+
   uint64_t numCacheGets{0};
   uint64_t numCacheGetMiss{0};
   uint64_t numRamDestructorCalls{0};
@@ -114,6 +117,11 @@ struct Stats {
                           invertPctFn(allocFailures, allocAttempts))
         << std::endl;
     out << folly::sformat("RAM Evictions : {:,}", numEvictions) << std::endl;
+    
+
+    out << folly::sformat("Background Tier 0 Evictions : {:,}", numBackgroundEvictions) << std::endl;
+    
+    out << folly::sformat("Background Tier 0 Eviction Runs : {:,}", numBackgroundEvictorRuns) << std::endl;
 
     if (numCacheGets > 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;

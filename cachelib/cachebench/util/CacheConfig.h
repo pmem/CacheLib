@@ -72,7 +72,7 @@ struct CacheConfig : public JSONConfig {
 
   uint64_t cacheSizeMB{0};
   uint64_t poolRebalanceIntervalSec{0};
-  uint64_t backgroundEvictorIntervalSec{0};
+  uint64_t backgroundEvictorIntervalMilSec{0};
   std::string rebalanceStrategy;
   std::string backgroundEvictorStrategy;
   double freeThreshold{0.01}; //keep 1% of space free

@@ -30,7 +30,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, allocator);
   JSONSetVal(configJson, cacheSizeMB);
   JSONSetVal(configJson, poolRebalanceIntervalSec);
-  JSONSetVal(configJson, backgroundEvictorIntervalSec);
+  JSONSetVal(configJson, backgroundEvictorIntervalMilSec);
   JSONSetVal(configJson, moveOnSlabRelease);
   JSONSetVal(configJson, rebalanceStrategy);
   JSONSetVal(configJson, rebalanceMinSlabs);
@@ -143,7 +143,7 @@ std::shared_ptr<RebalanceStrategy> CacheConfig::getRebalanceStrategy() const {
 }
 
 std::shared_ptr<BackgroundEvictorStrategy> CacheConfig::getBackgroundEvictorStrategy() const {
-  if (backgroundEvictorIntervalSec == 0) {
+  if (backgroundEvictorIntervalMilSec == 0) {
     return nullptr;
   }
 

@@ -270,7 +270,7 @@ class CacheAllocatorConfig {
   // to evict to the next tier
   CacheAllocatorConfig& enableBackgroundEvictor(
       std::shared_ptr<BackgroundEvictorStrategy> backgroundEvictorStrategy,
-      std::chrono::seconds regularInterval);
+      std::chrono::milliseconds regularInterval);
 
   // This enables an optimization for Pool rebalancing and resizing.
   // The rough idea is to ensure only the least useful items are evicted when
@@ -440,7 +440,7 @@ class CacheAllocatorConfig {
   std::chrono::milliseconds poolRebalanceInterval{std::chrono::seconds{1}};
   
   // time interval to sleep between runs of the background evictor
-  std::chrono::milliseconds backgroundEvictorInterval{std::chrono::seconds{1}};
+  std::chrono::milliseconds backgroundEvictorInterval{std::chrono::milliseconds{1000}};
 
   // Free slabs pro-actively if the ratio of number of freeallocs to
   // the number of allocs per slab in a slab class is above this
@@ -984,7 +984,7 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enablePoolRebalancing(
 template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enableBackgroundEvictor(
     std::shared_ptr<BackgroundEvictorStrategy> strategy,
-    std::chrono::seconds interval) {
+    std::chrono::milliseconds interval) {
   backgroundEvictorStrategy = strategy;
   backgroundEvictorInterval = interval;
   return *this;

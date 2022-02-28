@@ -62,7 +62,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   
   allocatorConfig_.enableBackgroundEvictor(
       config_.getBackgroundEvictorStrategy(),
-      std::chrono::seconds(config_.backgroundEvictorIntervalSec));
+      std::chrono::milliseconds(config_.backgroundEvictorIntervalMilSec));
 
   if (config_.moveOnSlabRelease && movingSync != nullptr) {
     allocatorConfig_.enableMovingOnSlabRelease(
@@ -523,6 +523,9 @@ Stats Cache<Allocator>::getStats() const {
   ret.numItems = aggregate.numItems();
   ret.allocAttempts = cacheStats.allocAttempts;
   ret.allocFailures = cacheStats.allocFailures;
+  
+  ret.numBackgroundEvictions = cacheStats.backgroundEvictorStats.numEvictedItems;
+  ret.numBackgroundEvictorRuns = cacheStats.backgroundEvictorStats.numTraversals;
 
   ret.numCacheGets = cacheStats.numCacheGets;
   ret.numCacheGetMiss = cacheStats.numCacheGetMiss;

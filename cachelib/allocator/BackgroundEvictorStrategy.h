@@ -35,19 +35,16 @@ namespace cachelib {
 class BackgroundEvictorStrategy {
 
 public:
-  BackgroundEvictorStrategy() {}
 
-  ~BackgroundEvictorStrategy() {}
-
-  unsigned int calculateBatchSize(const CacheBase& cache,
+  virtual unsigned int calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
-                                       ClassId cid );
+                                       ClassId cid ) = 0;
 
-  bool shouldEvict(const CacheBase& cache,
+  virtual bool shouldEvict(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
-                                       ClassId cid );
+                                       ClassId cid ) = 0;
 
 
 };
