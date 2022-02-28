@@ -325,6 +325,12 @@ void CacheAllocator<CacheTrait>::initWorkers() {
                           config_.poolOptimizeStrategy,
                           config_.ccacheOptimizeStepSizePercent);
   }
+
+  if (config_.backgroundEvictorEnabled()) {
+      startNewBackgroundEvictor(config_.backgroundEvictorInterval,
+                                config_.backgroundEvictorStrategy,
+                                0); //right now default to tier 0);
+  }
 }
 
 template <typename CacheTrait>
@@ -351,6 +357,15 @@ CacheAllocator<CacheTrait>::allocate(PoolId poolId,
 }
 
 template <typename CacheTrait>
+bool CacheAllocator<CacheTrait>::shouldWakeupBgEvictor(TierId tid, PoolId pid, ClassId cid)
+{
+  // TODO: should we also work on lower tiers? should we have separate set of params?
+  if (tid == 1) return false;
+  return slabsAllocatedPercentage(tid) >= config_.evictionSlabWatermark 
+    && acAllocatedPercentage(tid, pid, cid) >= config_.lowEvictionAcWatermark;
+}
+
+template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::ItemHandle
 CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
                                              PoolId pid,
@@ -372,13 +387,18 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
   (*stats_.allocAttempts)[pid][cid].inc();
 
   void* memory = allocator_[tid]->allocate(pid, requiredSize);
+
+  if (backgroundEvictor_ && (memory == nullptr || shouldWakeupBgEvictor(tid, pid, cid))) {
+    backgroundEvictor_->wakeUp();
+  }
+
   // TODO: Today disableEviction means do not evict from memory (DRAM).
   //       Should we support eviction between memory tiers (e.g. from DRAM to PMEM)?
   if (memory == nullptr && !config_.disableEviction) {
     memory = findEviction(tid, pid, cid);
   }
 
-  ItemHandle handle;
+  WriteHandle handle;
   if (memory != nullptr) {
     // At this point, we have a valid memory allocation that is ready for use.
     // Ensure that when we abort from here under any circumstances, we free up
@@ -415,11 +435,20 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
 }
 
 template <typename CacheTrait>
-double CacheAllocator<CacheTrait>::slabsAllocatedPercentage(TierId tid)
+double CacheAllocator<CacheTrait>::slabsAllocatedPercentage(TierId tid) const
 {
   auto allocated = allocator_[tid]->slabAllocator_.numSlabsAllocated.load(std::memory_order_relaxed);
   auto usable = allocator_[tid]->slabAllocator_.numSlabsUsable.load(std::memory_order_relaxed);
   return 100.0 * static_cast<double>(allocated) / static_cast<double>(usable);
+}
+
+template <typename CacheTrait>
+double CacheAllocator<CacheTrait>::acAllocatedPercentage(TierId tid, PoolId pid, ClassId cid) const
+{
+  const auto &ac = allocator_[tid]->getPool(pid).getAllocationClassFor(cid);
+  auto acAllocatedSize = ac.currAllocSize_.load(std::memory_order_relaxed);
+  auto acUsableSize = ac.curAllocatedSlabs_.load(std::memory_order_relaxed);
+  return 100.0 * static_cast<double>(acAllocatedSize) / static_cast<double>(acUsableSize);
 }
 
 template <typename CacheTrait>
@@ -460,15 +489,12 @@ CacheAllocator<CacheTrait>::getTargetTierForItem(PoolId pid,
   // if (poolAllocatedPercentage > highPoolAllocationWatermark)
   //   return defaultTargetTier + 1;
 
-  const auto &ac = allocator_[defaultTargetTier]->getPool(pid).getAllocationClassFor(cid);
-  auto acAllocatedSize = ac.currAllocSize_.load(std::memory_order_relaxed);
-  auto acUsableSize = ac.curAllocatedSlabs_.load(std::memory_order_relaxed);
-  auto acAllocatedPercentage = 100.0 * static_cast<double>(acAllocatedSize) / static_cast<double>(acUsableSize);
+  auto acAllocatedPercentageV = acAllocatedPercentage(defaultTargetTier, pid, cid);
 
-  if (acAllocatedPercentage < config_.lowAcAllocationWatermark)
+  if (acAllocatedPercentageV < config_.lowAcAllocationWatermark)
     return defaultTargetTier;
 
-  if (acAllocatedPercentage > config_.highAcAllocationWatermark)
+  if (acAllocatedPercentageV > config_.highAcAllocationWatermark)
     return defaultTargetTier + 1;
 
   // TODO: we can even think about creating different allocation classes for PMEM
@@ -3353,6 +3379,7 @@ bool CacheAllocator<CacheTrait>::stopWorkers(std::chrono::seconds timeout) {
   success &= stopPoolResizer(timeout);
   success &= stopMemMonitor(timeout);
   success &= stopReaper(timeout);
+  success &= stopBackgroundEvictor(timeout);
   return success;
 }
 
@@ -3633,6 +3660,7 @@ GlobalCacheStats CacheAllocator<CacheTrait>::getGlobalCacheStats() const {
   ret.nvmCacheEnabled = nvmCache_ ? nvmCache_->isEnabled() : false;
   ret.nvmUpTime = currTime - getNVMCacheCreationTime();
   ret.reaperStats = getReaperStats();
+  ret.evictionStats = getBackgroundEvictorStats();
   ret.numActiveHandles = getNumActiveHandles();
 
   return ret;
@@ -3731,6 +3759,7 @@ bool CacheAllocator<CacheTrait>::startNewPoolRebalancer(
                         freeAllocThreshold);
 }
 
+
 template <typename CacheTrait>
 bool CacheAllocator<CacheTrait>::startNewPoolResizer(
     std::chrono::milliseconds interval,
@@ -3769,6 +3798,14 @@ bool CacheAllocator<CacheTrait>::startNewReaper(
 }
 
 template <typename CacheTrait>
+bool CacheAllocator<CacheTrait>::startNewBackgroundEvictor(
+    std::chrono::milliseconds interval,
+    std::shared_ptr<BackgroundEvictorStrategy> strategy,
+    unsigned int tid ) {
+  return startNewWorker("BackgroundEvictor", backgroundEvictor_, interval, strategy, tid);
+}
+
+template <typename CacheTrait>
 bool CacheAllocator<CacheTrait>::stopPoolRebalancer(
     std::chrono::seconds timeout) {
   return stopWorker("PoolRebalancer", poolRebalancer_, timeout);
@@ -3793,6 +3830,12 @@ bool CacheAllocator<CacheTrait>::stopMemMonitor(std::chrono::seconds timeout) {
 template <typename CacheTrait>
 bool CacheAllocator<CacheTrait>::stopReaper(std::chrono::seconds timeout) {
   return stopWorker("Reaper", reaper_, timeout);
+}
+
+template <typename CacheTrait>
+bool CacheAllocator<CacheTrait>::stopBackgroundEvictor(
+    std::chrono::seconds timeout) {
+  return stopWorker("BackgroundEvictor", backgroundEvictor_, timeout);
 }
 
 template <typename CacheTrait>

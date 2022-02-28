@@ -61,6 +61,15 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   allocatorConfig_.enablePoolRebalancing(
       config_.getRebalanceStrategy(),
       std::chrono::seconds(config_.poolRebalanceIntervalSec));
+ 
+  //for another day
+  //allocatorConfig_.enablePoolOptimizer(
+  //    config_.getPoolOptimizerStrategy(),
+  //    std::chrono::seconds(config_.poolOptimizerIntervalSec));
+  
+  allocatorConfig_.enableBackgroundEvictor(
+      config_.getBackgroundEvictorStrategy(),
+      std::chrono::milliseconds(config_.backgroundEvictorIntervalMilSec));
 
   if (config_.moveOnSlabRelease && movingSync != nullptr) {
     allocatorConfig_.enableMovingOnSlabRelease(
@@ -115,6 +124,8 @@ Cache<Allocator>::Cache(const CacheConfig& config,
       util::removePath(nvmCacheFilePath_);
     }
   });
+
+  allocatorConfig_.evictionHotnessThreshold = config_.evictionHotnessThreshold;
 
   if (config_.enableItemDestructorCheck) {
     auto removeCB = [&](const typename Allocator::DestructorData& data) {
@@ -261,7 +272,8 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   allocatorConfig_.cacheName = "cachebench";
 
   allocatorConfig_.evictionSlabWatermark = config_.evictionSlabWatermark;
-  allocatorConfig_.evictionAcWatermark = config_.evictionAcWatermark;
+  allocatorConfig_.lowEvictionAcWatermark = config_.lowEvictionAcWatermark;
+  allocatorConfig_.highEvictionAcWatermark = config_.highEvictionAcWatermark;
   allocatorConfig_.lowSlabAllocationWatermak = config_.lowSlabAllocationWatermak;
   allocatorConfig_.lowAcAllocationWatermark = config_.lowAcAllocationWatermark;
   allocatorConfig_.highAcAllocationWatermark = config_.highAcAllocationWatermark;
@@ -513,6 +525,15 @@ Stats Cache<Allocator>::getStats() const {
   const auto navyStats = cache_->getNvmCacheStatsMap();
 
   Stats ret;
+  ret.backgndEvicStats.nEvictedItems =
+            cacheStats.evictionStats.numEvictedItems;
+  ret.backgndEvicStats.nTraversals =
+            cacheStats.evictionStats.runCount;
+  ret.backgndEvicStats.nClasses =
+            cacheStats.evictionStats.totalClasses;
+  ret.backgndEvicStats.evictionSize =
+            cacheStats.evictionStats.evictionSize;
+
   ret.numEvictions = aggregate.numEvictions();
   ret.numItems = aggregate.numItems();
   ret.allocAttempts = cacheStats.allocAttempts;
@@ -562,6 +583,8 @@ Stats Cache<Allocator>::getStats() const {
   if (config_.printNvmCounters) {
     ret.nvmCounters = cache_->getNvmCacheStatsMap();
   }
+
+  ret.backgroundEvictionClasses = cache_->getBackgroundEvictorClassStats();
 
   // nvm stats from navy
   if (!isRamOnly() && !navyStats.empty()) {

@@ -25,7 +25,24 @@ DECLARE_bool(report_api_latency);
 namespace facebook {
 namespace cachelib {
 namespace cachebench {
+
+struct BackgroundEvictionStats {
+  // the number of items this worker evicted by looking at pools/classes stats
+  uint64_t nEvictedItems{0};
+
+  // number of times we went executed the thread //TODO: is this def correct?
+  uint64_t nTraversals{0};
+
+  // number of classes
+  uint64_t nClasses{0};
+
+  // size of evicted items
+  uint64_t evictionSize{0};
+};
+
 struct Stats {
+  BackgroundEvictionStats backgndEvicStats;
+
   uint64_t numEvictions{0};
   uint64_t numItems{0};
 
@@ -99,6 +116,8 @@ struct Stats {
   // what to populate since not all of those are interesting when running
   // cachebench.
   std::unordered_map<std::string, double> nvmCounters;
+  
+  std::map<uint32_t, uint64_t> backgroundEvictionClasses;
 
   // errors from the nvm engine.
   std::unordered_map<std::string, double> nvmErrors;
@@ -115,12 +134,21 @@ struct Stats {
         << std::endl;
     out << folly::sformat("RAM Evictions : {:,}", numEvictions) << std::endl;
 
-    if (numCacheGets > 0) {
+    out << folly::sformat("Tier 0 Background Evicted items : {:,}",
+                            backgndEvicStats.nEvictedItems) << std::endl;
+    out << folly::sformat("Tier 0 Background Traversals : {:,}",
+                            backgndEvicStats.nTraversals) << std::endl;
+    out << folly::sformat("Tier 0 Total Classes : {:,}",
+                            backgndEvicStats.nClasses) << std::endl;
+    out << folly::sformat("Tier 0 Background Evicted Size : {:,}",
+                            backgndEvicStats.evictionSize) << std::endl;
+
+    if (numCacheGets >= 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;
       out << folly::sformat("Hit Ratio     : {:6.2f}%", overallHitRatio)
           << std::endl;
 
-      if (FLAGS_report_api_latency) {
+      if (FLAGS_report_api_latency || 1) {
         auto printLatencies =
             [&out](folly::StringPiece cat,
                    const util::PercentileStats::Estimates& latency) {
@@ -272,6 +300,13 @@ struct Stats {
         out << it.first << "  :  " << it.second << std::endl;
       }
     }
+    
+    //if (!backgroundEvictionClasses.empty()) {
+    //  out << "== Class Background Eviction Counters Map ==" << std::endl;
+    //  for (const auto& it : backgroundEvictionClasses) {
+    //    out << it.first << "  :  " << it.second << std::endl;
+    //  }
+    //}
 
     if (numRamDestructorCalls > 0 || numNvmDestructorCalls > 0) {
       out << folly::sformat("Destructor executed from RAM {}, from NVM {}",

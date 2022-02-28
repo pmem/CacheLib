@@ -20,6 +20,7 @@
 
 #include "cachelib/allocator/CacheAllocator.h"
 #include "cachelib/allocator/RebalanceStrategy.h"
+#include "cachelib/allocator/BackgroundEvictorStrategy.h"
 #include "cachelib/cachebench/util/JSONConfig.h"
 #include "cachelib/common/Ticker.h"
 #include "cachelib/navy/common/Device.h"
@@ -76,7 +77,9 @@ struct CacheConfig : public JSONConfig {
 
   uint64_t cacheSizeMB{0};
   uint64_t poolRebalanceIntervalSec{0};
+  uint64_t backgroundEvictorIntervalMilSec{0};
   std::string rebalanceStrategy;
+  std::string backgroundEvictorStrategy;
   uint64_t rebalanceMinSlabs{1};
   double rebalanceDiffRatio{0.25};
   bool moveOnSlabRelease{false};
@@ -288,8 +291,10 @@ struct CacheConfig : public JSONConfig {
   // this verifies whether the feature affects throughputs.
   bool enableItemDestructor{false};
 
-  double evictionSlabWatermark{101.0}; // trigger slab eviction when this percentage of slabs are allocated
-  double evictionAcWatermark{101.0};   // trigger eviction when this percentage of allocation class is occupied
+  double evictionSlabWatermark{100.0}; // trigger slab eviction when this percentage of slabs are allocated
+  double lowEvictionAcWatermark{98.0};   // trigger eviction when this percentage of allocation class is occupied
+  double highEvictionAcWatermark{95.0}; // stop eviction when this percentage of allocation class is occupied
+
   double lowSlabAllocationWatermak{101.0};  // try to insert to different tier if this much slabs are allocated
   double lowAcAllocationWatermark{101.0};   // try to insert to different tier if this much memory is allocated in ac
   double highAcAllocationWatermark{101.0};  // always insert to different tier if this much memory is allocated in ac
@@ -300,11 +305,14 @@ struct CacheConfig : public JSONConfig {
   double numDuplicateElements{0.0}; // inclusivness of the cache
   double syncPromotion{0.0}; // can promotion be done synchronously in user thread
 
+  uint64_t evictionHotnessThreshold{200};
+
   explicit CacheConfig(const folly::dynamic& configJson);
 
   CacheConfig() {}
 
   std::shared_ptr<RebalanceStrategy> getRebalanceStrategy() const;
+  std::shared_ptr<BackgroundEvictorStrategy> getBackgroundEvictorStrategy() const;
 };
 } // namespace cachebench
 } // namespace cachelib

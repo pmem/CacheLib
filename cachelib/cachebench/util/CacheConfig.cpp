@@ -20,6 +20,8 @@
 #include "cachelib/allocator/LruTailAgeStrategy.h"
 #include "cachelib/allocator/RandomStrategy.h"
 
+#include "cachelib/allocator/FreeThresholdStrategy.h"
+
 namespace facebook {
 namespace cachelib {
 namespace cachebench {
@@ -27,10 +29,13 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, allocator);
   JSONSetVal(configJson, cacheSizeMB);
   JSONSetVal(configJson, poolRebalanceIntervalSec);
+  JSONSetVal(configJson, backgroundEvictorIntervalMilSec);
   JSONSetVal(configJson, moveOnSlabRelease);
   JSONSetVal(configJson, rebalanceStrategy);
   JSONSetVal(configJson, rebalanceMinSlabs);
   JSONSetVal(configJson, rebalanceDiffRatio);
+  
+  JSONSetVal(configJson, backgroundEvictorStrategy);
 
   JSONSetVal(configJson, htBucketPower);
   JSONSetVal(configJson, htLockPower);
@@ -94,7 +99,8 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, enableItemDestructor);
 
   JSONSetVal(configJson, evictionSlabWatermark);
-  JSONSetVal(configJson, evictionAcWatermark);
+  JSONSetVal(configJson, lowEvictionAcWatermark);
+  JSONSetVal(configJson, highEvictionAcWatermark);
   JSONSetVal(configJson, lowSlabAllocationWatermak);
   JSONSetVal(configJson, lowAcAllocationWatermark);
   JSONSetVal(configJson, highAcAllocationWatermark);
@@ -105,6 +111,8 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
 
   JSONSetVal(configJson, persistedCacheDir);
   JSONSetVal(configJson, usePosixShm);
+  JSONSetVal(configJson, evictionHotnessThreshold);
+
   if (configJson.count("memoryTiers")) {
     for (auto& it : configJson["memoryTiers"]) {
       memoryTierConfigs.push_back(MemoryTierConfig(it).getMemoryTierCacheConfig());
@@ -114,7 +122,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   // if you added new fields to the configuration, update the JSONSetVal
   // to make them available for the json configs and increment the size
   // below
-  checkCorrectSize<CacheConfig, 824>();
+  checkCorrectSize<CacheConfig, 880>();
 
   if (numPools != poolSizes.size()) {
     throw std::invalid_argument(folly::sformat(
@@ -142,6 +150,14 @@ std::shared_ptr<RebalanceStrategy> CacheConfig::getRebalanceStrategy() const {
     return std::make_shared<RandomStrategy>(
         RandomStrategy::Config{static_cast<unsigned int>(rebalanceMinSlabs)});
   }
+}
+
+std::shared_ptr<BackgroundEvictorStrategy> CacheConfig::getBackgroundEvictorStrategy() const {
+  if (backgroundEvictorIntervalMilSec == 0) {
+    return nullptr;
+  }
+
+  return std::make_shared<FreeThresholdStrategy>(evictionSlabWatermark, lowEvictionAcWatermark, highEvictionAcWatermark, evictionHotnessThreshold);
 }
 
 

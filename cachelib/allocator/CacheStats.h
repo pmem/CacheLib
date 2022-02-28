@@ -285,6 +285,21 @@ struct ReaperStats {
   uint64_t avgTraversalTimeMs{0};
 };
 
+// Eviction Stats
+struct BackgroundEvictionStats {
+  // the number of items this worker evicted by looking at pools/classes stats
+  uint64_t numEvictedItems{0};
+
+  // number of times we went executed the thread //TODO: is this def correct?
+  uint64_t runCount{0};
+
+  // total number of classes
+  uint64_t totalClasses{0};
+
+  // eviction size
+  uint64_t evictionSize{0};
+};
+
 // CacheMetadata type to export
 struct CacheMetadata {
   // allocator_version
@@ -305,6 +320,9 @@ struct Stats;
 // Stats that apply globally in cache and
 // the ones that are aggregated over all pools
 struct GlobalCacheStats {
+  // background eviction stats
+  BackgroundEvictionStats evictionStats;
+
   // number of calls to CacheAllocator::find
   uint64_t numCacheGets{0};
 
