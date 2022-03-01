@@ -1777,6 +1777,9 @@ class CacheAllocator : public CacheBase {
     while (evictions < batch && itr) {
 
       Item* candidate = itr.get();
+      if (candidate == NULL) {
+          break;
+      }
       // for chained items, the ownership of the parent can change. We try to
       // evict what we think as parent and see if the eviction of parent
       // recycles the child we intend to.
@@ -1820,14 +1823,13 @@ class CacheAllocator : public CacheBase {
         releaseBackToAllocator(itemToRelease, RemoveContext::kEviction,
                               /* isNascent */ movedToNextTier, candidate);
 
+      } else {
+          //evict failed - let's quit with what we have
+          break;
       }
 
-      // If we destroyed the itr to possibly evict and failed, we restart
-      // from the beginning again
-      if (!itr) {
-        itr.resetToBegin();
-      }
     }
+
     // Invalidate iterator since later on we may use this mmContainer
     // again, which cannot be done unless we drop this iterator
     itr.destroy();

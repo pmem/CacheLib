@@ -31,6 +31,7 @@
 #include "cachelib/allocator/NvmAdmissionPolicy.h"
 #include "cachelib/allocator/PoolOptimizeStrategy.h"
 #include "cachelib/allocator/RebalanceStrategy.h"
+#include "cachelib/allocator/BackgroundEvictorStrategy.h"
 #include "cachelib/allocator/Util.h"
 #include "cachelib/common/EventInterface.h"
 #include "cachelib/common/Throttler.h"
