@@ -1789,10 +1789,12 @@ class CacheAllocator : public CacheBase {
       if(toReleaseHandle) {
         movedToNextTier = true;
       } else {
-        toReleaseHandle =
-            itr->isChainedItem()
-                ? advanceIteratorAndTryEvictChainedItem(tid, pid, itr)
-                : advanceIteratorAndTryEvictRegularItem(tid, pid, mmContainer, itr);
+        //toReleaseHandle =
+        //    itr->isChainedItem()
+        //        ? advanceIteratorAndTryEvictChainedItem(tid, pid, itr)
+        //        : advanceIteratorAndTryEvictRegularItem(tid, pid, mmContainer, itr);
+        //just bump the iterator and move on with life
+        ++itr;
       }
 
       if (toReleaseHandle) {
@@ -1823,10 +1825,7 @@ class CacheAllocator : public CacheBase {
         releaseBackToAllocator(itemToRelease, RemoveContext::kEviction,
                               /* isNascent */ movedToNextTier, candidate);
 
-      } else {
-          //evict failed - let's quit with what we have
-          break;
-      }
+      } 
 
     }
 
