@@ -516,9 +516,10 @@ Stats Cache<Allocator>::getStats() const {
 
   Stats ret;
   ret.numEvictions = aggregate.numEvictions();
-  const auto tierStats = cache_->getCacheTierStats();
-  ret.numTierEvictionAttempts.emplace_back(tierStats.numEvictionAttempts);
-  ret.numTierEvictionSuccesses.emplace_back(tierStats.numEvictionSuccesses);
+  for (auto& tier : cacheStats.tierStats) {
+    ret.numTierEvictionAttempts.emplace_back(tier.numEvictionAttempts);
+    ret.numTierEvictionSuccesses.emplace_back(tier.numEvictionSuccesses);
+  }
 
   ret.numItems = aggregate.numItems();
   ret.allocAttempts = cacheStats.allocAttempts;

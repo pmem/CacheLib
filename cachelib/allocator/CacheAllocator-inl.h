@@ -2919,7 +2919,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
   auto startTime = util::getCurrentTimeSec();
   while (true) {
     stats_.numEvictionAttempts.inc();
-    stats_.numTierEvictionAttempts_[tid].inc();
+    stats_.shmTierStats[tid].numEvictionAttempts.inc();
 
     // if the item is already in a state where only the moving bit is set,
     // nothing needs to be done. We simply need to unmark moving bit and free
@@ -2954,7 +2954,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
       }
 
       stats_.numEvictionSuccesses.inc();
-      stats_.numTierEvictionSuccesses_[tid].inc();
+      stats_.shmTierStats[tid].numEvictionSuccesses.inc();
 
       // we have the last handle. no longer need to hold on to the moving bit
       item.unmarkMoving();
@@ -3589,6 +3589,11 @@ template <typename CacheTrait>
 void CacheAllocator<CacheTrait>::initStats() {
   stats_.init();
 
+  // initialize tier stats
+  for (auto i = 0; i < numTiers_; i++) {
+    stats_.shmTierStats.emplace_back();
+  }
+
   // deserialize the fragmentation size of each thread.
   for (const auto& pid : *metadata_.fragmentationSize_ref()) {
     for (const auto& cid : pid.second) {
@@ -3666,13 +3671,6 @@ GlobalCacheStats CacheAllocator<CacheTrait>::getGlobalCacheStats() const {
   ret.reaperStats = getReaperStats();
   ret.numActiveHandles = getNumActiveHandles();
 
-  return ret;
-}
-
-template <typename CacheTrait>
-CacheTierStats CacheAllocator<CacheTrait>::getCacheTierStats() const {
-  CacheTierStats ret{};
-  stats_.populateCacheTierStats(ret);
   return ret;
 }
 

@@ -302,6 +302,23 @@ namespace detail {
 struct Stats;
 }
 
+
+// Stats that apply to each cache tier
+struct CacheTierStats {
+
+  // total number of eviction attempts for a tier
+  uint64_t numEvictionAttempts;
+
+  // number of eviction attempt successes for a tier
+  uint64_t numEvictionSuccesses;
+
+  CacheTierStats(uint64_t evicAttempts, uint64_t evicSuccesses) :
+    numEvictionAttempts(evicAttempts), numEvictionSuccesses(evicSuccesses) {};
+  }
+};
+
+using AllCacheTiersStats = std::vector<CacheTierStats>;
+
 // Stats that apply globally in cache and
 // the ones that are aggregated over all pools
 struct GlobalCacheStats {
@@ -416,6 +433,9 @@ struct GlobalCacheStats {
   // number of evictions across all the pools in the cache.
   uint64_t numEvictions{0};
 
+  // individual stats for all tiers
+  AllCacheTiersStats tierStats;
+
   // number of allocation attempts with invalid input params.
   uint64_t invalidAllocs{0};
 
@@ -485,16 +505,6 @@ struct GlobalCacheStats {
   // not go to negative. If it's negative, it means we have
   // leaked handles (or some sort of accounting bug internally)
   int64_t numActiveHandles;
-};
-
-// Stats that apply to each cache tier and
-// the ones that are aggregated over all pools
-struct CacheTierStats {
-  // number of eviction attempts across all tiers
-  std::array<uint64_t, CacheAllocator::kMaxTiers>
-      numEvictionAttempts;
-  std::array<uint64_t, CacheAllocator::kMaxTiers>
-      numEvictionSuccesses;
 };
 
 struct CacheMemoryStats {

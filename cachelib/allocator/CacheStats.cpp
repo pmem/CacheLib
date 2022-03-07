@@ -124,6 +124,11 @@ void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
   ret.numEvictions = accum(*chainedItemEvictions);
   ret.numEvictions += accum(*regularItemEvictions);
 
+  for (auto& tier : shmTierStats) {
+    ret.tierStats.emplace_back(
+      tier.numEvictionAttempts.get(), tier.numEvictionSuccesses.get());
+  }
+
   ret.invalidAllocs = invalidAllocs.get();
   ret.numRefcountOverflow = numRefcountOverflow.get();
 
@@ -134,14 +139,6 @@ void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
   ret.numEvictionFailureFromParentMoving = evictFailParentMove.get();
   ret.numAbortedSlabReleases = numAbortedSlabReleases.get();
 }
-
-void Stats::populateCacheTierStats(CacheTierStats& ret) const {
-  for (auto tid = 0; tid < CacheAllocator::kMaxTiers; tid++) {
-    ret.numEvictionAttempts.emplace_back(numTierEvictionAttempts_[tid].get());
-    ret.numEvictionSuccesses.emplace_back(numTierEvictionSuccesses_[tid].get());
-  }
-}
-
 } // namespace detail
 
 PoolStats& PoolStats::operator+=(const PoolStats& other) {

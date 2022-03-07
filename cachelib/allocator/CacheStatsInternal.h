@@ -27,9 +27,20 @@ namespace cachelib {
 
 // forward declaration
 struct GlobalCacheStats;
-struct CacheTierStats;
 
 namespace detail {
+
+struct ShmTierStats {
+  // number of eviction attempts per tier
+  AtomicCounter numEvictionAttempts{0};
+
+  // number of eviction successes per tier
+  AtomicCounter numEvictionSuccesses{0};
+
+  ShmTierStats() {};
+};
+
+using AllShmTierStats = std::vector<ShmTierStats>;
 
 // collection of stats that are updated at a high frequency, making it
 // necessary to track them as thread local counters that are aggregated.
@@ -161,11 +172,8 @@ struct Stats {
   AtomicCounter numEvictionAttempts{0};
   AtomicCounter numEvictionSuccesses{0};
 
-  // the number of evictions per tier
-  std::array<AtomicCounter, CacheAllocator::kMaxTiers>
-      numTierEvictionAttempts_;
-  std::array<AtomicCounter, CacheAllocator::kMaxTiers>
-      numTierEvictionSuccesses_;
+  // shm tier stats
+  AllShmTierStats shmTierStats;
 
   // the number times a refcount overflow occurred, resulting in an exception
   // being thrown
@@ -250,8 +258,6 @@ struct Stats {
   void init();
 
   void populateGlobalCacheStats(GlobalCacheStats& ret) const;
-
-  void populateCacheTierStats(CacheTierStats& ret) const;
 };
 
 } // namespace detail

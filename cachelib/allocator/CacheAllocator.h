@@ -1060,9 +1060,6 @@ class CacheAllocator : public CacheBase {
   // return the overall cache stats
   GlobalCacheStats getGlobalCacheStats() const override final;
 
-  // return the tier-specific cache stats
-  CacheTierStats getCacheTierStats() const override final;
-
   // return cache's memory usage stats.
   CacheMemoryStats getCacheMemoryStats() const override final;
 

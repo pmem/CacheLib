@@ -133,9 +133,6 @@ class CacheBase {
   // @return the overall cache stats
   virtual GlobalCacheStats getGlobalCacheStats() const = 0;
 
-// @return the specific cache tier stats
-  virtual CacheTierStats getCacheTierStats() const = 0;
-
   // @return the slab release stats.
   virtual SlabReleaseStats getSlabReleaseStats() const = 0;
 
