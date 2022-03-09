@@ -314,7 +314,6 @@ struct CacheTierStats {
 
   CacheTierStats(uint64_t evicAttempts, uint64_t evicSuccesses) :
     numEvictionAttempts(evicAttempts), numEvictionSuccesses(evicSuccesses) {};
-  }
 };
 
 using AllCacheTiersStats = std::vector<CacheTierStats>;
