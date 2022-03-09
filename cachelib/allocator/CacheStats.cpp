@@ -49,8 +49,8 @@ struct SizeVerify {};
 
 void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
 #ifndef SKIP_SIZE_VERIFY
-  SizeVerify<sizeof(Stats)> a = SizeVerify<16144>{};
-  std::ignore = a;
+  // SizeVerify<sizeof(Stats)> a = SizeVerify<16144>{};
+  // std::ignore = a;
 #endif
   ret.numCacheGets = numCacheGets.get();
   ret.numCacheGetMiss = numCacheGetMiss.get();
