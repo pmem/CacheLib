@@ -37,6 +37,12 @@ struct ShmTierStats {
   // number of eviction successes per tier
   AtomicCounter numEvictionSuccesses{0};
 
+  // number of tier access
+  AtomicCounter numAccess{0};
+
+  // size used
+  AtomicCounter usedSize{0};
+
   ShmTierStats() {};
 };
 

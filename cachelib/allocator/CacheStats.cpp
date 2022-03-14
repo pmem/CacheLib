@@ -131,7 +131,10 @@ void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
 
   for (auto& tier : shmTierStats) {
     ret.tierStats.emplace_back(
-      tier.numEvictionAttempts.get(), tier.numEvictionSuccesses.get());
+      tier.numEvictionAttempts.get(),
+      tier.numEvictionSuccesses.get(),
+      tier.numAccess.get(),
+      tier.usedSize.get());
   }
 
   ret.invalidAllocs = invalidAllocs.get();
