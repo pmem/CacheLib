@@ -37,8 +37,10 @@ template <typename CacheT>
 void BackgroundEvictor<CacheT>::work() {
   try {
     for (const auto pid : cache_.getRegularPoolIds()) {
-      //check if we exceed threshold (per class basis static right now)
-      checkAndRun(pid);
+      //check if the pool is full - probably should be if tier is full
+      if (cache_.getPoolByTid(pid,tid_).allSlabsAllocated()) {
+        checkAndRun(pid);
+      }
     }
   } catch (const std::exception& ex) {
     XLOGF(ERR, "BackgroundEvictor interrupted due to exception: {}", ex.what());

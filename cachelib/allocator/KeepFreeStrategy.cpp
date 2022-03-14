@@ -29,14 +29,16 @@ bool KeepFreeStrategy::shouldEvict(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
                                        ClassId cid ) {
-  const auto& mpStats = cache.getPoolByTid(pid,tid).getStats();
-  size_t allocSize = mpStats.acStats.at(cid).allocSize;
-  size_t freeAllocs = mpStats.acStats.at(cid).getTotalFreeMemory() / allocSize;
-  if (freeAllocs < nKeepFree_) {
-      return true;
-  } else {
-      return false;
-  }
+
+    const auto& mpStats = cache.getPoolByTid(pid,tid).getStats();
+    size_t allocSize = mpStats.acStats.at(cid).allocSize;
+    size_t totalAllocs = mpStats.acStats.at(cid).getTotalMemory() / allocSize;
+    size_t freeAllocs = mpStats.acStats.at(cid).getTotalFreeMemory() / allocSize;
+    if (totalAllocs > nKeepFree_ && freeAllocs < nKeepFree_) {
+        return true;
+    } else {
+        return false;
+    }
   
 }
 

@@ -1822,8 +1822,9 @@ class CacheAllocator : public CacheBase {
         
         // check if by releasing the item we intend to, we actually
         // recycle the candidate.
-        releaseBackToAllocator(itemToRelease, RemoveContext::kEviction,
-                              /* isNascent */ movedToNextTier, candidate);
+        const auto res = releaseBackToAllocator(itemToRelease, RemoveContext::kEviction,
+                              /* isNascent */ movedToNextTier);
+        XDCHECK(res == ReleaseRes::kReleased);
 
       } 
 

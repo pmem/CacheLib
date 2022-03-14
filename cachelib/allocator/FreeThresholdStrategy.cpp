@@ -32,14 +32,19 @@ bool FreeThresholdStrategy::shouldEvict(const CacheBase& cache,
                                        ClassId cid ) {
 
   const auto& mpStats = cache.getPoolByTid(pid,tid).getStats();
-  size_t totalMem = mpStats.acStats.at(cid).getTotalMemory(); 
-  size_t freeMem = mpStats.acStats.at(cid).getTotalFreeMemory();
+  size_t allocSize = mpStats.acStats.at(cid).allocSize;
+  size_t totalMem = mpStats.acStats.at(cid).getTotalMemory() / allocSize; 
+  size_t freeMem = mpStats.acStats.at(cid).getTotalFreeMemory() / allocSize;
 
-  double currFree = (double)freeMem/(double)totalMem;
-  if (currFree < freeThreshold_) {
-      return true;
+  if (totalMem > 0) {
+    double currFree = (double)freeMem/(double)totalMem;
+    if (currFree < freeThreshold_) {
+        return true;
+    } else {
+        return false;
+    }
   } else {
-      return false;
+    return false;
   }
 
 }
