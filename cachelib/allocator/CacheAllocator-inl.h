@@ -3587,12 +3587,7 @@ void CacheAllocator<CacheTrait>::adjustHandleCountForThread_private(
 
 template <typename CacheTrait>
 void CacheAllocator<CacheTrait>::initStats() {
-  stats_.init();
-
-  // initialize tier stats
-  for (auto i = 0; i < numTiers_; i++) {
-    stats_.shmTierStats.emplace_back();
-  }
+  stats_.init(numTiers_);
 
   // deserialize the fragmentation size of each thread.
   for (const auto& pid : *metadata_.fragmentationSize_ref()) {

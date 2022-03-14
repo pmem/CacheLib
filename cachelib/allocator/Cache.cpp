@@ -25,7 +25,7 @@ namespace cachelib {
 
 CacheBase::CacheBase(unsigned numTiers): numTiers_(numTiers) {}
 
-unsigned CacheBase::getNumTiers() const {
+unsigned int CacheBase::getNumTiers() const {
   return numTiers_;
 }
 
