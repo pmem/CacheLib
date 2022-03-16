@@ -27,20 +27,65 @@ namespace tests {
 template <typename AllocatorT>
 class AllocatorMemoryTiersTest : public AllocatorTest<AllocatorT> {
  public:
-  void testMultiTiers() {
+  void configCache() {
     typename AllocatorT::Config config;
-    config.setCacheSize(100 * Slab::kSize);
-    config.configureMemoryTiers({
-        MemoryTierCacheConfig::fromFile("/tmp/a" + std::to_string(::getpid()))
-            .setRatio(1),
-        MemoryTierCacheConfig::fromFile("/tmp/b" + std::to_string(::getpid()))
-            .setRatio(1)
-    });
+    config
+        .setCacheSize(12 * Slab::kSize) // 12 * 4MB
+        .setCacheName("MultiTier Cache")
+        .enableCachePersistence("/tmp")
+        .setAccessConfig({
+          25 /* bucket power */,
+          10 /* lock power */}) // assuming caching 20 million items
+        .configureMemoryTiers({
+            MemoryTierCacheConfig::fromShm().setRatio(1),
+            MemoryTierCacheConfig::fromFile("/tmp/a" + std::to_string(::getpid())).setRatio(2)})
+        .validate(); // throw if config is incorrect
 
-    // More than one tier is not supported
-    ASSERT_THROW(std::make_unique<AllocatorT>(AllocatorT::SharedMemNew, config),
-                 std::invalid_argument);
+    cache_ = std::make_unique<AllocatorT>(AllocatorT::SharedMemNew, config);
+    pool_ = cache_->addPool("default", cache_->getCacheMemoryStats().cacheSize);
   }
+
+  void destroyCache() { cache_.reset(); }
+
+  typename AllocatorT::ItemHandle get(typename AllocatorT::Key key) { return cache_->find(key); }
+
+  bool put(typename AllocatorT::Key key, const std::string& value) {
+    auto handle = cache_->allocate(pool_, key, value.size());
+    if (!handle) {
+      return false; // cache may fail to evict due to too many pending writes
+    }
+    std::memcpy(handle->getWritableMemory(), value.data(), value.size());
+    cache_->insertOrReplace(handle);
+    return true;
+  }
+
+  void populateCache() {
+    for(size_t i = 0; i < numEntries_; i++) {
+      auto res = put(getKey(i), value_);
+      ASSERT_TRUE(res);
+    }
+  }
+
+  bool verifyCache() {
+    for(size_t i = 0; i < numEntries_; ++i) {
+      auto item = get(getKey(i));
+      if (item) {
+        folly::StringPiece sp{reinterpret_cast<const char*>(item->getMemory()),
+                              item->getSize()};
+        ASSERT_EQ(folly::cEscape<std::string>(sp), value_);
+      } else {
+        return false;
+      }
+    }
+    return true;
+  }
+
+ private:
+  PoolId pool_;
+  std::unique_ptr<AllocatorT> cache_;
+  size_t numEntries_ = 13000;
+  std::string value_ = std::string(4*1024, 'X'); // 4 KB value
+  std::string getKey(size_t i) { return "key" + std::to_string(i); }
 };
 } // namespace tests
 } // namespace cachelib
