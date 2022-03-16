@@ -44,9 +44,7 @@ void Stats::init(unsigned int numTiers) {
   initToZero(*regularItemEvictions);
 
   // initialize tier stats
-  for (auto i = 0; i < numTiers; i++) {
-    shmTierStats.emplace_back();
-  }
+  shmTierStats.resize(numTiers);
 }
 
 template <int>

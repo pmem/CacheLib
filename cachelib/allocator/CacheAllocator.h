@@ -181,8 +181,6 @@ class CacheAllocator : public CacheBase {
 
   using EventTracker = EventInterface<Key>;
 
-  static constexpr size_t kMaxTiers = 10; // TODO: need to define right value
-
   // holds information about removal, used in RemoveCb
   struct RemoveCbData {
     // remove or eviction
