@@ -2043,6 +2043,8 @@ CacheAllocator<CacheTrait>::find(typename Item::Key key, AccessMode mode) {
       }
       ItemHandle ret;
       ret.markExpired();
+      auto tid = getTierId(*ret);
+      stats_.shmTierStats[tid].numAccess.inc();
       return ret;
     }
 
@@ -2052,6 +2054,8 @@ CacheAllocator<CacheTrait>::find(typename Item::Key key, AccessMode mode) {
                            AllocatorApiResult::FOUND, handle->getSize(),
                            handle->getConfiguredTTL().count());
     }
+    auto tid = getTierId(*handle);
+    stats_.shmTierStats[tid].numAccess.inc();
     return handle;
   }
 

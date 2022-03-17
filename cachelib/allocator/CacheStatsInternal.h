@@ -32,13 +32,13 @@ namespace detail {
 
 struct ShmTierStats {
   // number of eviction attempts per tier
-  AtomicCounter numEvictionAttempts{0};
+  TLCounter numEvictionAttempts{0};
 
   // number of eviction successes per tier
-  AtomicCounter numEvictionSuccesses{0};
+  TLCounter numEvictionSuccesses{0};
 
   // number of tier access
-  AtomicCounter numAccess{0};
+  TLCounter numAccess{0};
 
   // size used
   AtomicCounter usedSize{0};
