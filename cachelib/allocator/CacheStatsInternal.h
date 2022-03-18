@@ -31,16 +31,6 @@ struct GlobalCacheStats;
 namespace detail {
 
 struct ShmTierStats {
-
-  ShmTierStats() = default;
-
-  ShmTierStats(const ShmTierStats& stat) {
-    numEvictionAttempts.set(stat.numEvictionAttempts.get());
-    numEvictionSuccesses.set(stat.numEvictionSuccesses.get());
-    numAccess.set(stat.numAccess.get());
-    usedSize.set(stat.usedSize.get());
-  }
-
   // number of eviction attempts per tier
   TLCounter numEvictionAttempts{0};
 
