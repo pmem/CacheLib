@@ -42,8 +42,6 @@ struct ShmTierStats {
 
   // size used
   AtomicCounter usedSize{0};
-
-  ShmTierStats() {};
 };
 
 using AllShmTierStats = std::vector<ShmTierStats>;
