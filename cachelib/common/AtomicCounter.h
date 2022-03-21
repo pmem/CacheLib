@@ -73,6 +73,9 @@ class TLCounter {
   explicit TLCounter(uint64_t init) : val_{init} {}
   ~TLCounter() = default;
 
+  TLCounter(const TLCounter& rhs)
+      : val_{rhs.val_.getSnapshot()} {}
+
   uint64_t get() const { return val_.getSnapshot(); }
 
   void set(uint64_t n) { val_.tlStats() = n; }
