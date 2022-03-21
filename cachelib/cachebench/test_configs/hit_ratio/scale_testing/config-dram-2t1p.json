@@ -1,0 +1,35 @@
+{
+  "cache_config": {
+    "cacheSizeMB": 600,
+    "usePosixShm": true,
+    "poolRebalanceIntervalSec": 0,
+    "persistedCacheDir": "/tmp/mem-tier"
+  }, 
+  "test_config": 
+    {
+      "validateValue": true,
+      "generator": "workload",
+      "addChainedRatio": 0.0, 
+      "delRatio": 0.0, 
+      "enableLookaside": true, 
+      "getRatio": 0.7684563460126871, 
+      "keySizeRange": [
+        1, 
+        8, 
+        64
+      ], 
+      "keySizeRangeProbability": [
+        0.3, 
+        0.7
+      ], 
+      "loneGetRatio": 0.2315436539873129, 
+      "numKeys": 40000000, 
+      "numOps": 200000, 
+      "numThreads": 2, 
+      "popDistFile": "pop.json", 
+       
+      "setRatio": 0.0, 
+      "valSizeDistFile": "sizes.json"
+    }
+ 
+}
