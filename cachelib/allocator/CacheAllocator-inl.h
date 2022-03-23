@@ -374,7 +374,7 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
   void* memory = allocator_[tid]->allocate(pid, requiredSize);
   // TODO: Today disableEviction means do not evict from memory (DRAM).
   //       Should we support eviction between memory tiers (e.g. from DRAM to PMEM)?
-  if (memory == nullptr && tid < numTiers_ - 1) {
+  if (memory == nullptr && tid < numTiers_ - 1 && !config_.insertTopTier) {
     return allocateInternalTier(tid + 1, pid, key, size, creationTime, expiryTime);
   } else if (memory == nullptr && !config_.disableEviction) {
     memory = findEviction(tid, pid, cid);

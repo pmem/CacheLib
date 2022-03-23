@@ -299,6 +299,9 @@ class CacheAllocatorConfig {
   // to Cache Library team. There is usually a better solutuon.
   CacheAllocatorConfig& disableCacheEviction();
 
+  // Disable unconditional inserting to the tompost memory tier.
+  CacheAllocatorConfig& disableInsertTopTier();
+
   // Passes in a callback to initialize an event tracker when the allocator
   // starts
   CacheAllocatorConfig& setEventTracker(EventTrackerSharedPtr&&);
@@ -476,6 +479,11 @@ class CacheAllocatorConfig {
   // TODO:
   // ABOVE are the config for various cache workers
   //
+
+  // if turned on, always insert new elements to topmost memory tier.
+  // if turned off, insert new element to first free memory tier or evict memory
+  // from the bottom one if memory cache is full
+  bool insertTopTier = true;
 
   // if turned on, cache allocator will not evict any item when the
   // system is out of memory. The user must free previously allocated
@@ -915,6 +923,12 @@ CacheAllocatorConfig<T>::getMemoryTierConfigs() const {
 }
 
 template <typename T>
+CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::disableInsertTopTier() {
+  insertTopTier = false;
+  return *this;
+}
+
+template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::disableCacheEviction() {
   disableEviction = true;
   return *this;
@@ -1196,6 +1210,7 @@ std::map<std::string, std::string> CacheAllocatorConfig<T>::serialize() const {
       std::to_string(memMonitorConfig.reclaimRateLimitWindowSecs.count());
   configMap["reaperInterval"] = util::toString(reaperInterval);
   configMap["mmReconfigureInterval"] = util::toString(mmReconfigureInterval);
+  configMap["insertTopTier"] = std::to_string(insertTopTier);
   configMap["disableEviction"] = std::to_string(disableEviction);
   configMap["evictionSearchTries"] = std::to_string(evictionSearchTries);
   configMap["thresholdForConvertingToIOBuf"] =
