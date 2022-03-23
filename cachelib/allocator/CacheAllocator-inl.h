@@ -325,12 +325,6 @@ void CacheAllocator<CacheTrait>::initWorkers() {
                           config_.poolOptimizeStrategy,
                           config_.ccacheOptimizeStepSizePercent);
   }
-  if (config_.poolOptimizerEnabled()) {
-    startNewPoolOptimizer(config_.regularPoolOptimizeInterval,
-                          config_.compactCacheOptimizeInterval,
-                          config_.poolOptimizeStrategy,
-                          config_.ccacheOptimizeStepSizePercent);
-  }
 
   if (config_.backgroundEvictorEnabled()) {
       startNewBackgroundEvictor(config_.backgroundEvictorInterval,
