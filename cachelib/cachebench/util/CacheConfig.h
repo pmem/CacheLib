@@ -283,6 +283,8 @@ struct CacheConfig : public JSONConfig {
   // this verifies whether the feature affects throughputs.
   bool enableItemDestructor{false};
 
+  bool insertTopTier{true};
+
   explicit CacheConfig(const folly::dynamic& configJson);
 
   CacheConfig() {}

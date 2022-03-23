@@ -95,6 +95,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
 
   JSONSetVal(configJson, persistedCacheDir);
   JSONSetVal(configJson, usePosixShm);
+  JSONSetVal(configJson, insertTopTier);
   if (configJson.count("memoryTiers")) {
     for (auto& it : configJson["memoryTiers"]) {
       memoryTierConfigs.push_back(MemoryTierConfig(it).getMemoryTierCacheConfig());
