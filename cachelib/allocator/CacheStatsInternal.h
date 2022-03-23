@@ -259,7 +259,7 @@ struct Stats {
   // Eviction failures because this item is being moved
   AtomicCounter evictFailMove{0};
 
-  void init(unsigned int numTiers);
+  void init(size_t numTiers);
 
   void populateGlobalCacheStats(GlobalCacheStats& ret) const;
 };

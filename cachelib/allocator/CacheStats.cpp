@@ -22,7 +22,7 @@ namespace facebook {
 namespace cachelib {
 namespace detail {
 
-void Stats::init(unsigned int numTiers) {
+void Stats::init(size_t numTiers) {
   cacheHits = std::make_unique<PerPoolClassTLCounters>();
   allocAttempts = std::make_unique<PerPoolClassAtomicCounters>();
   fragmentationSize = std::make_unique<PerPoolClassAtomicCounters>();
