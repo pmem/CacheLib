@@ -34,12 +34,10 @@ bool KeepFreeStrategy::shouldEvict(const CacheBase& cache,
     size_t allocSize = mpStats.acStats.at(cid).allocSize;
     size_t totalAllocs = mpStats.acStats.at(cid).getTotalMemory() / allocSize;
     size_t freeAllocs = mpStats.acStats.at(cid).getTotalFreeMemory() / allocSize;
-    if (totalAllocs > nKeepFree_ && freeAllocs < nKeepFree_) {
+    if (freeAllocs < nKeepFree_) {
         return true;
-    } else {
-        return false;
     }
-  
+    return false;
 }
 
 unsigned int KeepFreeStrategy::calculateBatchSize(const CacheBase& cache,
