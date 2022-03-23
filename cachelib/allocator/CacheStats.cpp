@@ -44,9 +44,7 @@ void Stats::init(unsigned int numTiers) {
   initToZero(*regularItemEvictions);
 
   // initialize tier stats
-  for (auto i = 0; i < numTiers; i++) {
-    shmTierStats.emplace_back();
-  }
+  shmTierStats.resize(numTiers);
 }
 
 template <int>
@@ -54,8 +52,8 @@ struct SizeVerify {};
 
 void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
 #ifndef SKIP_SIZE_VERIFY
-  // SizeVerify<sizeof(Stats)> a = SizeVerify<16144>{};
-  // std::ignore = a;
+  SizeVerify<sizeof(Stats)> a = SizeVerify<16168>{};
+  std::ignore = a;
 #endif
   ret.numCacheGets = numCacheGets.get();
   ret.numCacheGetMiss = numCacheGetMiss.get();
@@ -133,10 +131,9 @@ void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
     ret.tierStats.emplace_back(
       tier.numEvictionAttempts.get(),
       tier.numEvictionSuccesses.get(),
-      tier.numAccess.get(),
+      tier.numHits.get(),
       tier.usedSize.get());
   }
-
   ret.invalidAllocs = invalidAllocs.get();
   ret.numRefcountOverflow = numRefcountOverflow.get();
 

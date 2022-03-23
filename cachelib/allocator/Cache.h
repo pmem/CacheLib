@@ -271,9 +271,9 @@ class CacheBase {
   // @return The number of slabs that were actually reclaimed (<= numSlabs)
   virtual unsigned int reclaimSlabs(PoolId id, size_t numSlabs) = 0;
 
-  unsigned int getNumTiers() const;
+  size_t getNumTiers() const;
 
-  unsigned int numTiers_ = 1;
+  size_t numTiers_ = 1;
 
   // Protect 'poolRebalanceStragtegies_' and `poolResizeStrategies_`
   // and `poolOptimizeStrategy_`

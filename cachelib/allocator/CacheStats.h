@@ -302,7 +302,6 @@ namespace detail {
 struct Stats;
 }
 
-
 // Stats that apply to each cache tier
 struct CacheTierStats {
 
@@ -313,7 +312,7 @@ struct CacheTierStats {
   uint64_t numEvictionSuccesses;
 
   // number of access requests
-  uint64_t numAccess;
+  uint64_t numHits;
 
   // size of cache tier used
   uint64_t usedSize;
@@ -324,7 +323,7 @@ struct CacheTierStats {
                   uint64_t size ) :
     numEvictionAttempts(evicAttempts),
     numEvictionSuccesses(evicSuccesses),
-    numAccess(accessCnt),
+    numHits(accessCnt),
     usedSize(size) {};
 };
 
