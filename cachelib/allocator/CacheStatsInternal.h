@@ -171,10 +171,10 @@ struct Stats {
   TLCounter numChainedChildItems{0};
 
   // the numbers for move and evictions in the process of slab release.
-  AtomicCounter numMoveAttempts{0};
-  AtomicCounter numMoveSuccesses{0};
-  AtomicCounter numEvictionAttempts{0};
-  AtomicCounter numEvictionSuccesses{0};
+  TLCounter numMoveAttempts{0};
+  TLCounter numMoveSuccesses{0};
+  TLCounter numEvictionAttempts{0};
+  TLCounter numEvictionSuccesses{0};
 
   // shm tier stats
   AllShmTierStats shmTierStats;

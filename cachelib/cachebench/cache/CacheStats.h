@@ -25,10 +25,19 @@ DECLARE_bool(report_api_latency);
 namespace facebook {
 namespace cachelib {
 namespace cachebench {
+
+struct TierStats {
+  uint64_t numEvictionAttempts{0};
+  uint64_t numEvictionSuccess{0};
+  uint64_t numHits{0};
+  uint64_t usedSize{0};
+};
+
+std::vector<TierStats> AllTierStats;
+
 struct Stats {
   uint64_t numEvictions{0};
-  std::vector<uint64_t> numTierEvictionAttempts;
-  std::vector<uint64_t> numTierEvictionSuccesses;
+  AllTierStats tierStats;
 
   uint64_t numItems{0};
 
