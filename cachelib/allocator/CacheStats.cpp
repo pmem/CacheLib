@@ -144,6 +144,7 @@ void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
   ret.numEvictionFailureFromParentMoving = evictFailParentMove.get();
   ret.numAbortedSlabReleases = numAbortedSlabReleases.get();
 }
+
 } // namespace detail
 
 PoolStats& PoolStats::operator+=(const PoolStats& other) {
