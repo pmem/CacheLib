@@ -357,7 +357,8 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
                                              typename Item::Key key,
                                              uint32_t size,
                                              uint32_t creationTime,
-                                             uint32_t expiryTime) {
+                                             uint32_t expiryTime,
+                                             bool evict) {
   util::LatencyTracker tracker{stats().allocateLatency_};
 
   SCOPE_FAIL { stats_.invalidAllocs.inc(); };
@@ -372,11 +373,9 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
   (*stats_.allocAttempts)[pid][cid].inc();
 
   void* memory = allocator_[tid]->allocate(pid, requiredSize);
-  // TODO: Today disableEviction means do not evict from memory (DRAM).
-  //       Should we support eviction between memory tiers (e.g. from DRAM to PMEM)?
-  if (memory == nullptr && tid < numTiers_ - 1 && !config_.insertTopTier) {
-    return allocateInternalTier(tid + 1, pid, key, size, creationTime, expiryTime);
-  } else if (memory == nullptr && !config_.disableEviction) {
+  if (memory == nullptr && !evict) {
+    return {};
+  } else if (memory == nullptr) {
     memory = findEviction(tid, pid, cid);
   }
 
@@ -425,7 +424,10 @@ CacheAllocator<CacheTrait>::allocateInternal(PoolId pid,
                                              uint32_t expiryTime) {
   auto tid = 0; /* TODO: consult admission policy */
   for(TierId tid = 0; tid < numTiers_; ++tid) {
-    auto handle = allocateInternalTier(tid, pid, key, size, creationTime, expiryTime);
+    // TODO: Today disableEviction means do not evict from memory (DRAM).
+    //       Should we support eviction between memory tiers (e.g. from DRAM to PMEM)?
+    bool evict = (config_.insertTopTier || tid == numTiers_ - 1) && !config_.disableEviction;
+    auto handle = allocateInternalTier(tid, pid, key, size, creationTime, expiryTime, evict);
     if (handle) return handle;
   }
   return {};
@@ -1573,18 +1575,24 @@ template <typename ItemPtr>
 typename CacheAllocator<CacheTrait>::ItemHandle
 CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
     TierId tid, PoolId pid, ItemPtr& item) {
+  // TODO: Today disableEviction means do not evict from memory (DRAM).
+  //       Should we support eviction between memory tiers (e.g. from DRAM to PMEM)?
+  XDCHECK(!config_.disableEviction);
+
   if(item->isChainedItem()) return {}; // TODO: We do not support ChainedItem yet
   if(item->isExpired()) return acquire(item);
 
   TierId nextTier = tid; // TODO - calculate this based on some admission policy
   while (++nextTier < numTiers_) { // try to evict down to the next memory tiers
     // allocateInternal might trigger another eviction
+    bool evict = true;
+
     auto newItemHdl = allocateInternalTier(nextTier, pid,
                      item->getKey(),
                      item->getSize(),
                      item->getCreationTime(),
-                     item->getExpiryTime());
-
+                     item->getExpiryTime(),
+                     evict);
     if (newItemHdl) {
       XDCHECK_EQ(newItemHdl->getSize(), item->getSize());
 
@@ -2853,17 +2861,23 @@ CacheAllocator<CacheTrait>::allocateNewItemForOldItem(const Item& oldItem) {
     return newItemHdl;
   }
 
+  const auto tid = getTierId(oldItem);
   const auto allocInfo =
-      allocator_[getTierId(oldItem)]->getAllocInfo(static_cast<const void*>(&oldItem));
+      allocator_[tid]->getAllocInfo(static_cast<const void*>(&oldItem));
+
+  // TODO: Today disableEviction means do not evict from memory (DRAM).
+  //       Should we support eviction between memory tiers (e.g. from DRAM to PMEM)?
+  bool evict = (config_.insertTopTier || tid == numTiers_ - 1) && !config_.disableEviction;
 
   // Set up the destination for the move. Since oldItem would have the moving
   // bit set, it won't be picked for eviction.
-  auto newItemHdl = allocateInternalTier(getTierId(oldItem),
+  auto newItemHdl = allocateInternalTier(tid,
                                      allocInfo.poolId,
                                      oldItem.getKey(),
                                      oldItem.getSize(),
                                      oldItem.getCreationTime(),
-                                     oldItem.getExpiryTime());
+                                     oldItem.getExpiryTime(),
+                                     evict);
   if (!newItemHdl) {
     return {};
   }

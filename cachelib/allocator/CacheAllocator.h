@@ -1328,7 +1328,8 @@ class CacheAllocator : public CacheBase {
                               Key key,
                               uint32_t size,
                               uint32_t creationTime,
-                              uint32_t expiryTime);
+                              uint32_t expiryTime,
+                              bool evict);
 
   // Allocate a chained item
   //
