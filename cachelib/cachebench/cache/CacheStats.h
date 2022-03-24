@@ -32,8 +32,7 @@ struct TierStats {
   uint64_t numHits{0};
   uint64_t usedSize{0};
 };
-
-std::vector<TierStats> AllTierStats;
+using AllTierStats = std::vector<TierStats>;
 
 struct Stats {
   uint64_t numEvictions{0};
