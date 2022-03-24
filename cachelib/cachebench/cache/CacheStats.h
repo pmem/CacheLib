@@ -134,7 +134,16 @@ struct Stats {
                           invertPctFn(allocFailures, allocAttempts))
         << std::endl;
     out << folly::sformat("RAM Evictions : {:,}", numEvictions) << std::endl;
-
+    for (auto i = 0U; i < tierStats.size(); i++) {
+      out << folly::sformat("Tier {:,} -> Eviction attempts: {:,}", i,
+                              tierStats[i].numEvictionAttempts) << std::endl;
+      out << folly::sformat("Tier {:,} -> Eviction success: {:,}", i,
+                              tierStats[i].numEvictionSuccess) << std::endl;
+      out << folly::sformat("Tier {:,} -> Cache Hits: {:,}", i,
+                              tierStats[i].numHits) << std::endl;
+      out << folly::sformat("Tier {:,} -> Used Size: {:,}B", i,
+                              tierStats[i].usedSize) << std::endl;
+    }
     if (numCacheGets > 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;
       out << folly::sformat("Hit Ratio     : {:6.2f}%", overallHitRatio)
