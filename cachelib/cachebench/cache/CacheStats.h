@@ -27,6 +27,15 @@ namespace cachelib {
 namespace cachebench {
 
 struct TierStats {
+  TierStats(uint64_t evicAttempts,
+            uint64_t evicSuccesses,
+            uint64_t hits,
+            uint64_t size ) :
+    numEvictionAttempts(evicAttempts),
+    numEvictionSuccess(evicSuccesses),
+    numHits(hits),
+    usedSize(size) {};
+
   uint64_t numEvictionAttempts{0};
   uint64_t numEvictionSuccess{0};
   uint64_t numHits{0};
