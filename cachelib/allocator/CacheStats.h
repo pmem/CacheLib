@@ -304,15 +304,6 @@ struct Stats;
 
 // Stats that apply to each cache tier
 struct CacheTierStats {
-  CacheTierStats( uint64_t evicAttempts,
-                  uint64_t evicSuccesses,
-                  uint64_t accessCnt,
-                  uint64_t size ) :
-    numEvictionAttempts(evicAttempts),
-    numEvictionSuccesses(evicSuccesses),
-    numHits(accessCnt),
-    usedSize(size) {};
-
   // total number of eviction attempts for a tier
   uint64_t numEvictionAttempts;
 
@@ -324,6 +315,15 @@ struct CacheTierStats {
 
   // size of cache tier used
   uint64_t usedSize;
+
+  CacheTierStats( uint64_t evicAttempts,
+                  uint64_t evicSuccesses,
+                  uint64_t accessCnt,
+                  uint64_t size ) :
+    numEvictionAttempts(evicAttempts),
+    numEvictionSuccesses(evicSuccesses),
+    numHits(accessCnt),
+    usedSize(size) {};
 };
 using AllCacheTiersStats = std::vector<CacheTierStats>;
 

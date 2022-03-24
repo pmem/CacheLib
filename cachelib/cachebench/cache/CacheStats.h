@@ -27,6 +27,11 @@ namespace cachelib {
 namespace cachebench {
 
 struct TierStats {
+  uint64_t numEvictionAttempts{0};
+  uint64_t numEvictionSuccess{0};
+  uint64_t numHits{0};
+  uint64_t usedSize{0};
+
   TierStats(uint64_t evicAttempts,
             uint64_t evicSuccesses,
             uint64_t hits,
@@ -35,11 +40,6 @@ struct TierStats {
     numEvictionSuccess(evicSuccesses),
     numHits(hits),
     usedSize(size) {};
-
-  uint64_t numEvictionAttempts{0};
-  uint64_t numEvictionSuccess{0};
-  uint64_t numHits{0};
-  uint64_t usedSize{0};
 };
 using AllTierStats = std::vector<TierStats>;
 
