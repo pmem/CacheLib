@@ -39,7 +39,7 @@ struct ShmTierStats {
   AtomicCounter numEvictionAttempts{0};
 
   // number of eviction successes per tier
-  PerPoolClassAtomicCounters numEvictionSuccess = {{{0}}};
+  PerPoolClassAtomicCounters numEvictionSuccess{{{0}}};
 
   // tier access count
   AtomicCounter numGets{0};
