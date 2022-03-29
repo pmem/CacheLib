@@ -37,6 +37,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, rebalanceDiffRatio);
   
   JSONSetVal(configJson, backgroundEvictorStrategy);
+  JSONSetVal(configJson, backgroundEvictorPoll);
   JSONSetVal(configJson, freeThreshold);
   JSONSetVal(configJson, nKeepFree);
 
@@ -148,12 +149,12 @@ std::shared_ptr<BackgroundEvictorStrategy> CacheConfig::getBackgroundEvictorStra
   }
 
   if (backgroundEvictorStrategy == "free-threshold") {
-    return std::make_shared<FreeThresholdStrategy>(freeThreshold);
+    return std::make_shared<FreeThresholdStrategy>(freeThreshold,backgroundEvictorPoll);
   } else if (backgroundEvictorStrategy == "keep-free") {
-    return std::make_shared<KeepFreeStrategy>(nKeepFree);
+    return std::make_shared<KeepFreeStrategy>(nKeepFree,backgroundEvictorPoll);
   } else {
     //default!
-    return std::make_shared<FreeThresholdStrategy>(freeThreshold);
+    return std::make_shared<FreeThresholdStrategy>(freeThreshold,true);
   }
 }
 

@@ -1789,11 +1789,6 @@ class CacheAllocator : public CacheBase {
       if(toReleaseHandle) {
         movedToNextTier = true;
       } else {
-        //toReleaseHandle =
-        //    itr->isChainedItem()
-        //        ? advanceIteratorAndTryEvictChainedItem(tid, pid, itr)
-        //        : advanceIteratorAndTryEvictRegularItem(tid, pid, mmContainer, itr);
-        //just bump the iterator and move on with life
         ++itr;
       }
 
@@ -1805,7 +1800,6 @@ class CacheAllocator : public CacheBase {
         }
         ++evictions;
 
-
         // we must be the last handle and for chained items, this will be
         // the parent.
         XDCHECK(toReleaseHandle.get() == candidate || candidate->isChainedItem());
@@ -1816,7 +1810,7 @@ class CacheAllocator : public CacheBase {
         // an already zero refcount, which will throw exception
         auto& itemToRelease = *toReleaseHandle.release();
 
-        // Decrementing the refcount because we want to recycle the item
+        // Decrementing the refcount because we will call releaseBackToAllocator
         const auto ref = decRef(itemToRelease);
         XDCHECK_EQ(0u, ref);
         

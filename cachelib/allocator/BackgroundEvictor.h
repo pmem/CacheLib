@@ -17,6 +17,7 @@
 #pragma once
 
 #include <gtest/gtest_prod.h>
+#include <folly/concurrency/UnboundedQueue.h>
 
 #include "cachelib/allocator/CacheStats.h"
 #include "cachelib/common/PeriodicWorker.h"
@@ -53,7 +54,10 @@ class BackgroundEvictor : public PeriodicWorker {
                     unsigned int tid);
 
   ~BackgroundEvictor() override;
-
+  
+  void schedule(size_t pid, size_t cid) {
+      tasks_.enqueue(std::make_pair(pid,cid));
+  }
   BackgroundEvictorStats getStats() const noexcept;
 
  private:
@@ -64,6 +68,7 @@ class BackgroundEvictor : public PeriodicWorker {
   Cache& cache_;
   std::shared_ptr<BackgroundEvictorStrategy> strategy_;
   unsigned int tid_;
+  folly::UMPSCQueue<std::pair<size_t,size_t>,true> tasks_;
 
   // implements the actual logic of running the background evictor
   void work() override final;

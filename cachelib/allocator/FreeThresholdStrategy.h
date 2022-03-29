@@ -28,7 +28,7 @@ class FreeThresholdStrategy : public BackgroundEvictorStrategy {
 
 public:
 
-  FreeThresholdStrategy(double freeThreshold);
+  FreeThresholdStrategy(double freeThreshold, bool poll);
 
   ~FreeThresholdStrategy() {}
 

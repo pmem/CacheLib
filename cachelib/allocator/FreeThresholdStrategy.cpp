@@ -23,8 +23,8 @@ namespace cachelib {
 
 
 
-FreeThresholdStrategy::FreeThresholdStrategy(double freeThreshold) 
-    : freeThreshold_(freeThreshold) {}
+FreeThresholdStrategy::FreeThresholdStrategy(double freeThreshold, bool poll) 
+    : BackgroundEvictorStrategy(poll), freeThreshold_(freeThreshold) {}
 
 bool FreeThresholdStrategy::shouldEvict(const CacheBase& cache,
                                        unsigned int tid,

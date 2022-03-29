@@ -14,35 +14,29 @@
  * limitations under the License.
  */
 
-#pragma once
+#include "cachelib/allocator/BackgroundEvictorStrategy.h"
 
-#include "cachelib/allocator/Cache.h"
+#include <folly/logging/xlog.h>
 
 namespace facebook {
 namespace cachelib {
 
 
-// Base class for background eviction strategy.
-class BackgroundEvictorStrategy {
-
-public:
-
-  BackgroundEvictorStrategy(bool poll) : poll_{poll} {};
-
-  virtual unsigned int calculateBatchSize(const CacheBase& cache,
+bool BackgroundEvictorStrategy::shouldEvict(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
-                                       ClassId cid ) = 0;
+                                       ClassId cid ) {
+  return true;
+}
 
-  virtual bool shouldEvict(const CacheBase& cache,
+
+unsigned int BackgroundEvictorStrategy::calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
-                                       ClassId cid ) = 0;
+                                       ClassId cid ) {
+  return 1;
+}
 
-  // if we should poll every n ms or wait for tasks in queue
-  bool poll_{false};
-
-};
 
 } // namespace cachelib
 } // namespace facebook

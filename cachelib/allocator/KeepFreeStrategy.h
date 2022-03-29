@@ -26,7 +26,7 @@ class KeepFreeStrategy : public BackgroundEvictorStrategy {
 
 public:
 
-  KeepFreeStrategy(unsigned int nKeepFree);
+  KeepFreeStrategy(unsigned int nKeepFree, bool poll);
 
   ~KeepFreeStrategy() {}
 

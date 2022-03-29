@@ -382,6 +382,7 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
   //       Should we support eviction between memory tiers (e.g. from DRAM to PMEM)?
   if (memory == nullptr && !config_.disableEviction) {
     memory = findEviction(tid, pid, cid);
+    backgroundEvictor_->schedule(pid,cid);
   }
 
   ItemHandle handle;

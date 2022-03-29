@@ -22,8 +22,8 @@ namespace facebook {
 namespace cachelib {
 
 
-KeepFreeStrategy::KeepFreeStrategy(unsigned int nKeepFree)
-   : nKeepFree_(nKeepFree) {} 
+KeepFreeStrategy::KeepFreeStrategy(unsigned int nKeepFree, bool poll)
+   : BackgroundEvictorStrategy(poll), nKeepFree_(nKeepFree) {} 
 
 bool KeepFreeStrategy::shouldEvict(const CacheBase& cache,
                                        unsigned int tid,

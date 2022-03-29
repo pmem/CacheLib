@@ -35,15 +35,31 @@ BackgroundEvictor<CacheT>::~BackgroundEvictor() { stop(std::chrono::seconds(0));
 
 template <typename CacheT>
 void BackgroundEvictor<CacheT>::work() {
-  try {
-    for (const auto pid : cache_.getRegularPoolIds()) {
-      //check if the pool is full - probably should be if tier is full
-      if (cache_.getPoolByTid(pid,tid_).allSlabsAllocated()) {
-        checkAndRun(pid);
+  if (strategy_->poll_) {
+    try {
+      for (const auto pid : cache_.getRegularPoolIds()) {
+        //check if the pool is full - probably should be if tier is full
+        if (cache_.getPoolByTid(pid,tid_).allSlabsAllocated()) {
+          checkAndRun(pid);
+        }
       }
+    } catch (const std::exception& ex) {
+      XLOGF(ERR, "BackgroundEvictor interrupted due to exception: {}", ex.what());
     }
-  } catch (const std::exception& ex) {
-    XLOGF(ERR, "BackgroundEvictor interrupted due to exception: {}", ex.what());
+  } else {
+      //when an eviction for a given pid,cid at tier 0 is triggered this will be run
+      while (1) {
+        std::pair p = tasks_.dequeue();
+        unsigned int pid = p.first;
+        unsigned int cid = p.second;
+        unsigned int batch = strategy_->calculateBatchSize(cache_,tid_,pid,cid);
+        //try evicting BATCH items from the class in order to reach free target
+        unsigned int evicted = 
+            BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
+                tid_,pid,cid,batch);
+        runCount_ = runCount_ + 1;
+      }
+
   }
 }
 
