@@ -23,39 +23,17 @@ namespace cachelib {
 
 
 
-FreeThresholdStrategy::FreeThresholdStrategy(double freeThreshold, bool poll) 
-    : BackgroundEvictorStrategy(poll), freeThreshold_(freeThreshold) {}
+FreeThresholdStrategy::FreeThresholdStrategy(double freeThreshold) 
+    : freeThreshold_(freeThreshold) {}
 
-bool FreeThresholdStrategy::shouldEvict(const CacheBase& cache,
+size_t FreeThresholdStrategy::calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
                                        ClassId cid ) {
-
-  const auto& mpStats = cache.getPoolByTid(pid,tid).getStats();
-  size_t allocSize = mpStats.acStats.at(cid).allocSize;
-  size_t totalMem = mpStats.acStats.at(cid).getTotalMemory() / allocSize; 
-  if (totalMem > 0) {
-    size_t freeMem = mpStats.acStats.at(cid).getTotalFreeMemory() / allocSize;
-    return ((double)freeMem / (double)totalMem) < freeThreshold_;
-  }
-  return false;
-
+  const auto& mpStats = cache.getPoolByTid(pid,tid).getStats().acStats.at(cid);
+  size_t targetMem = (freeThreshold_ * mpStats.getTotalMemory()) - mpStats.getTotalFreeMemory();
+  return std::max(0UL, targetMem / mpStats.allocSize);
 }
-
-unsigned int FreeThresholdStrategy::calculateBatchSize(const CacheBase& cache,
-                                       unsigned int tid,
-                                       PoolId pid,
-                                       ClassId cid ) {
-  const auto& mpStats = cache.getPoolByTid(pid,tid).getStats();
-  size_t totalMem = mpStats.acStats.at(cid).getTotalMemory(); 
-  size_t freeMem = mpStats.acStats.at(cid).getTotalFreeMemory();
-
-  size_t targetMem = (freeThreshold_ * totalMem) - freeMem;
-  unsigned int batch = (targetMem / mpStats.acStats.at(cid).allocSize);
-
-  return batch;
-}
-
 
 } // namespace cachelib
 } // namespace facebook

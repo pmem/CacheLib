@@ -37,7 +37,6 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, rebalanceDiffRatio);
   
   JSONSetVal(configJson, backgroundEvictorStrategy);
-  JSONSetVal(configJson, backgroundEvictorPoll);
   JSONSetVal(configJson, freeThreshold);
   JSONSetVal(configJson, nKeepFree);
 
@@ -104,6 +103,9 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
 
   JSONSetVal(configJson, persistedCacheDir);
   JSONSetVal(configJson, usePosixShm);
+  JSONSetVal(configJson, scheduleEviction);
+  JSONSetVal(configJson, wakeupBgEvictor);
+
   if (configJson.count("memoryTiers")) {
     for (auto& it : configJson["memoryTiers"]) {
       memoryTierConfigs.push_back(MemoryTierConfig(it).getMemoryTierCacheConfig());
@@ -149,12 +151,12 @@ std::shared_ptr<BackgroundEvictorStrategy> CacheConfig::getBackgroundEvictorStra
   }
 
   if (backgroundEvictorStrategy == "free-threshold") {
-    return std::make_shared<FreeThresholdStrategy>(freeThreshold,backgroundEvictorPoll);
+    return std::make_shared<FreeThresholdStrategy>(freeThreshold);
   } else if (backgroundEvictorStrategy == "keep-free") {
-    return std::make_shared<KeepFreeStrategy>(nKeepFree,backgroundEvictorPoll);
+    return std::make_shared<KeepFreeStrategy>(nKeepFree);
   } else {
     //default!
-    return std::make_shared<FreeThresholdStrategy>(freeThreshold,true);
+    return std::make_shared<FreeThresholdStrategy>(freeThreshold);
   }
 }
 

@@ -27,26 +27,15 @@ namespace cachelib {
 class FreeThresholdStrategy : public BackgroundEvictorStrategy {
 
 public:
-
-  FreeThresholdStrategy(double freeThreshold, bool poll);
-
+  FreeThresholdStrategy(double freeThreshold);
   ~FreeThresholdStrategy() {}
 
-  unsigned int calculateBatchSize(const CacheBase& cache,
+  size_t calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
                                        ClassId cid );
-
-  bool shouldEvict(const CacheBase& cache,
-                                       unsigned int tid,
-                                       PoolId pid,
-                                       ClassId cid );
-
 private:
-
   double freeThreshold_;
-
-
 };
 
 } // namespace cachelib

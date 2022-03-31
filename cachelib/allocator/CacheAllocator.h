@@ -1769,13 +1769,12 @@ class CacheAllocator : public CacheBase {
   
   // exposed for the background evictor to iterate through the memory and evict
   // in batch. This should improve insertion path for tiered memory config
-  unsigned int traverseAndEvictItems(unsigned int tid, unsigned int pid, unsigned int cid, unsigned int batch) {
-
+  size_t traverseAndEvictItems(unsigned int tid, unsigned int pid, unsigned int cid, size_t batch) {
     auto& mmContainer = getMMContainer(tid, pid, cid);
-    unsigned int evictions = 0;
+    size_t evictions = 0;
     auto itr = mmContainer.getEvictionIterator();
-    while (evictions < batch && itr) {
 
+    while (evictions < batch && itr) {
       Item* candidate = itr.get();
       if (candidate == NULL) {
           break;
@@ -1785,14 +1784,9 @@ class CacheAllocator : public CacheBase {
       // recycles the child we intend to.
       
       ItemHandle toReleaseHandle = tryEvictToNextMemoryTier(tid, pid, itr);
-      bool movedToNextTier = false;
-      if(toReleaseHandle) {
-        movedToNextTier = true;
-      } else {
+      if (!toReleaseHandle) {
         ++itr;
-      }
-
-      if (toReleaseHandle) {
+      } else {
         if (toReleaseHandle->hasChainedItem()) {
           (*stats_.chainedItemEvictions)[pid][cid].inc();
         } else {
@@ -1817,11 +1811,9 @@ class CacheAllocator : public CacheBase {
         // check if by releasing the item we intend to, we actually
         // recycle the candidate.
         const auto res = releaseBackToAllocator(itemToRelease, RemoveContext::kEviction,
-                              /* isNascent */ movedToNextTier);
+                              /* isNascent */ true);
         XDCHECK(res == ReleaseRes::kReleased);
-
       } 
-
     }
 
     // Invalidate iterator since later on we may use this mmContainer

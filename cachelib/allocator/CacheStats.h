@@ -287,8 +287,11 @@ struct ReaperStats {
 
 // Stats for background evictor
 struct BackgroundEvictorStats {
-  // the total number of items the reaper has visited.
+  // the number of items this worker evicted by looking at pools/classes stats
   uint64_t numEvictedItems{0};
+
+  // the number of items this worker evicted for pools/classes requested by schedule call
+  uint64_t numEvictedItemsFromSchedule{0};
 
   // number of times we went executed the thread //TODO: is this def correct?
   uint64_t numTraversals{0};

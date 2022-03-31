@@ -77,7 +77,6 @@ struct CacheConfig : public JSONConfig {
   std::string backgroundEvictorStrategy;
   double freeThreshold{0.01}; //keep 1% of space free
   uint32_t nKeepFree{100}; //keep at most 100 slots free
-  bool backgroundEvictorPoll{false};
   uint64_t rebalanceMinSlabs{1};
   double rebalanceDiffRatio{0.25};
   bool moveOnSlabRelease{false};
@@ -288,6 +287,9 @@ struct CacheConfig : public JSONConfig {
   // enable the ItemDestructor feature, but not check correctness,
   // this verifies whether the feature affects throughputs.
   bool enableItemDestructor{false};
+
+  bool wakeupBgEvictor {false};
+  bool scheduleEviction {false};
 
   explicit CacheConfig(const folly::dynamic& configJson);
 

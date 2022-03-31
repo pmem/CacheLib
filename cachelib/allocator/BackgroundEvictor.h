@@ -32,8 +32,8 @@ namespace cachelib {
 template <typename C>
 struct BackgroundEvictorAPIWrapper {
 
-  static unsigned int traverseAndEvictItems(C& cache,
-          unsigned int tid, unsigned int pid, unsigned int cid, unsigned int batch) {
+  static size_t traverseAndEvictItems(C& cache,
+          unsigned int tid, unsigned int pid, unsigned int cid, size_t batch) {
     return cache.traverseAndEvictItems(tid,pid,cid,batch);
   }
 };
@@ -75,6 +75,7 @@ class BackgroundEvictor : public PeriodicWorker {
   void checkAndRun(PoolId pid);
   
   std::atomic<uint64_t> numEvictedItems_{0};
+  std::atomic<uint64_t> numEvictedItemsFromSchedule_{0};
   std::atomic<uint64_t> runCount_{0};
 };
 } // namespace cachelib

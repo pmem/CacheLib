@@ -597,6 +597,12 @@ class CacheAllocatorConfig {
   // skip promote children items in chained when parent fail to promote
   bool skipPromoteChildrenWhenParentFailed{false};
 
+  // wakeupBg evictor each time there is no memory to allocate new item in topmost tier
+  bool wakeupBgEvictor {false};
+
+  // every time there is no space to allocate for particual cid,pid pass this information to BG worker
+  bool scheduleEviction {false};
+
   friend CacheT;
 
  private:
