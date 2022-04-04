@@ -118,6 +118,9 @@ Cache<Allocator>::Cache(const CacheConfig& config,
     }
   });
 
+  allocatorConfig_.wakeupBgEvictor = config_.wakeupBgEvictor;
+  allocatorConfig_.scheduleEviction = config_.scheduleEviction;
+
   if (config_.enableItemDestructorCheck) {
     auto removeCB = [&](const typename Allocator::DestructorData& data) {
       if (!itemRecords_.validate(data)) {
@@ -525,6 +528,7 @@ Stats Cache<Allocator>::getStats() const {
   ret.allocFailures = cacheStats.allocFailures;
   
   ret.numBackgroundEvictions = cacheStats.backgroundEvictorStats.numEvictedItems;
+  ret.numBackgroundEvictionsFromSchedule = cacheStats.backgroundEvictorStats.numEvictedItemsFromSchedule;
   ret.numBackgroundEvictorRuns = cacheStats.backgroundEvictorStats.numTraversals;
 
   ret.numCacheGets = cacheStats.numCacheGets;

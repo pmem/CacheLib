@@ -23,25 +23,16 @@ namespace facebook {
 namespace cachelib {
 
 class KeepFreeStrategy : public BackgroundEvictorStrategy {
-
 public:
-
-  KeepFreeStrategy(unsigned int nKeepFree, bool poll);
-
+  KeepFreeStrategy(size_t nKeepFree);
   ~KeepFreeStrategy() {}
 
-  unsigned int calculateBatchSize(const CacheBase& cache,
-                                       unsigned int tid,
-                                       PoolId pid,
-                                       ClassId cid );
-
-  bool shouldEvict(const CacheBase& cache,
+  size_t calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
                                        ClassId cid );
 private:
-  unsigned int nKeepFree_;
-
+  size_t nKeepFree_;
 };
 
 } // namespace cachelib

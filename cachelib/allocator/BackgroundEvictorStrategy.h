@@ -26,22 +26,10 @@ namespace cachelib {
 class BackgroundEvictorStrategy {
 
 public:
-
-  BackgroundEvictorStrategy(bool poll) : poll_{poll} {};
-
-  virtual unsigned int calculateBatchSize(const CacheBase& cache,
+  virtual size_t calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
                                        ClassId cid ) = 0;
-
-  virtual bool shouldEvict(const CacheBase& cache,
-                                       unsigned int tid,
-                                       PoolId pid,
-                                       ClassId cid ) = 0;
-
-  // if we should poll every n ms or wait for tasks in queue
-  bool poll_{false};
-
 };
 
 } // namespace cachelib

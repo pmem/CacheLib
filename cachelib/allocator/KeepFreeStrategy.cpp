@@ -22,35 +22,16 @@ namespace facebook {
 namespace cachelib {
 
 
-KeepFreeStrategy::KeepFreeStrategy(unsigned int nKeepFree, bool poll)
-   : BackgroundEvictorStrategy(poll), nKeepFree_(nKeepFree) {} 
+KeepFreeStrategy::KeepFreeStrategy(size_t nKeepFree)
+   : nKeepFree_(nKeepFree) {} 
 
-bool KeepFreeStrategy::shouldEvict(const CacheBase& cache,
+size_t KeepFreeStrategy::calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
                                        ClassId cid ) {
-
-    const auto& mpStats = cache.getPoolByTid(pid,tid).getStats();
-    size_t allocSize = mpStats.acStats.at(cid).allocSize;
-    size_t totalAllocs = mpStats.acStats.at(cid).getTotalMemory() / allocSize;
-    size_t freeAllocs = mpStats.acStats.at(cid).getTotalFreeMemory() / allocSize;
-    if (freeAllocs < nKeepFree_) {
-        return true;
-    }
-    return false;
+  const auto& mpStats = cache.getPoolByTid(pid,tid).getStats().acStats.at(cid);
+  return std::max(0UL, nKeepFree_ - (mpStats.getTotalFreeMemory() / mpStats.allocSize));
 }
-
-unsigned int KeepFreeStrategy::calculateBatchSize(const CacheBase& cache,
-                                       unsigned int tid,
-                                       PoolId pid,
-                                       ClassId cid ) {
-  const auto& mpStats = cache.getPoolByTid(pid,tid).getStats();
-  size_t allocSize = mpStats.acStats.at(cid).allocSize;
-  size_t freeAllocs = mpStats.acStats.at(cid).getTotalFreeMemory() / allocSize;
-
-  return (unsigned int)(nKeepFree_ - freeAllocs);
-}
-
 
 } // namespace cachelib
 } // namespace facebook

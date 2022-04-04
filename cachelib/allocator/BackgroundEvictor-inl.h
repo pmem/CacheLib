@@ -27,7 +27,6 @@ BackgroundEvictor<CacheT>::BackgroundEvictor(Cache& cache,
     : cache_(cache),
       strategy_(strategy),
       tid_(tid) {
-
 }
 
 template <typename CacheT>
@@ -35,52 +34,46 @@ BackgroundEvictor<CacheT>::~BackgroundEvictor() { stop(std::chrono::seconds(0));
 
 template <typename CacheT>
 void BackgroundEvictor<CacheT>::work() {
-  if (strategy_->poll_) {
-    try {
+  try {
+    if (!tasks_.empty()) {
+      while (auto entry = tasks_.try_dequeue()) {
+        auto [pid, cid] = entry.value();
+        auto batch = strategy_->calculateBatchSize(cache_, tid_, pid, cid);
+        auto evicted = BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
+                tid_,pid,cid,batch);
+        numEvictedItemsFromSchedule_.fetch_add(1, std::memory_order_relaxed);
+        runCount_.fetch_add(1, std::memory_order_relaxed);
+      }
+    } else {
       for (const auto pid : cache_.getRegularPoolIds()) {
         //check if the pool is full - probably should be if tier is full
         if (cache_.getPoolByTid(pid,tid_).allSlabsAllocated()) {
           checkAndRun(pid);
         }
       }
-    } catch (const std::exception& ex) {
-      XLOGF(ERR, "BackgroundEvictor interrupted due to exception: {}", ex.what());
     }
-  } else {
-      //when an eviction for a given pid,cid at tier 0 is triggered this will be run
-      while (1) {
-        std::pair p = tasks_.dequeue();
-        unsigned int pid = p.first;
-        unsigned int cid = p.second;
-        unsigned int batch = strategy_->calculateBatchSize(cache_,tid_,pid,cid);
-        //try evicting BATCH items from the class in order to reach free target
-        unsigned int evicted = 
-            BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
-                tid_,pid,cid,batch);
-        runCount_ = runCount_ + 1;
-      }
-
+  } catch (const std::exception& ex) {
+    XLOGF(ERR, "BackgroundEvictor interrupted due to exception: {}", ex.what());
   }
 }
-
 
 // Look for classes that exceed the target memory capacity
 // and return those for eviction
 template <typename CacheT>
-void BackgroundEvictor<CacheT>::checkAndRun(PoolId pid) {
-    
+void BackgroundEvictor<CacheT>::checkAndRun(PoolId pid) {    
   const auto& mpStats = cache_.getPoolByTid(pid,tid_).getStats();
   for (auto& cid : mpStats.classIds) {
-    if (strategy_->shouldEvict(cache_,tid_,pid,cid)) {
-        unsigned int batch = strategy_->calculateBatchSize(cache_,tid_,pid,cid);
-        //try evicting BATCH items from the class in order to reach free target
-        unsigned int evicted = 
-            BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
-                tid_,pid,cid,batch);
-        numEvictedItems_ += evicted;
-    }
+      auto batch = strategy_->calculateBatchSize(cache_,tid_,pid,cid);
+      if (!batch)
+        continue;
+
+      //try evicting BATCH items from the class in order to reach free target
+      auto evicted =
+          BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
+              tid_,pid,cid,batch);
+      numEvictedItems_.fetch_add(evicted, std::memory_order_relaxed);
   }
-  runCount_ = runCount_ + 1;
+  runCount_.fetch_add(1, std::memory_order_relaxed);
 }
 
 template <typename CacheT>
@@ -88,6 +81,7 @@ BackgroundEvictorStats BackgroundEvictor<CacheT>::getStats() const noexcept {
   BackgroundEvictorStats stats;
   stats.numEvictedItems = numEvictedItems_.load(std::memory_order_relaxed);
   stats.numTraversals = runCount_.load(std::memory_order_relaxed);
+  stats.numEvictedItemsFromSchedule = numEvictedItemsFromSchedule_.load(std::memory_order_relaxed);
   return stats;
 }
 
