@@ -77,7 +77,7 @@ build_fedora_34()
 
 build_dependencies()
 {
-  for pkg in zstd googleflags googlelog googletest sparsemap fmt folly fizz wangle fbthrift ;
+  for pkg in zstd googleflags googlelog googletest sparsemap fmt folly fizz wangle fbthrift ittapi;
   do
     # shellcheck disable=SC2086
     ./contrib/build-package.sh $pass_params "$pkg" \
@@ -90,13 +90,14 @@ show_help_and_exit()
   base=$(basename "$0")
   echo "CacheLib dependencies builder
 
-usage: $base [-BdhijOStv]
+usage: $base [-BdhiIjOStv]
 
 options:
   -B    skip build - just download packages and git source
   -d    build with DEBUG configuration
         (default is RELEASE with debug information)
   -h    This help screen
+  -I    ittapi for integrating VTune into your source files.
   -j    build using all available CPUs ('make -j')
         (default is to use single CPU)
   -O    skip OS package installation (apt/yum/dnf)
@@ -119,13 +120,13 @@ skip_os_pkgs=
 skip_build=
 show_help=
 build_cachelib_tests=
-while getopts BdhjOStvT param
+while getopts BdhjIOStvT param
 do
   case $param in
   h)  show_help=yes ;;
   O)  skip_os_pkgs=yes ;;
   B)  skip_build=yes ;;
-  d|j|S|t|v) pass_params="$pass_params -$param" ;;
+  d|j|I|S|t|v) pass_params="$pass_params -$param" ;;
   T)  build_cachelib_tests=yes ;;
   ?)      die "unknown option. See -h for help."
   esac
