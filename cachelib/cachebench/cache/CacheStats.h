@@ -141,7 +141,7 @@ struct Stats {
                               tierStats[i].numEvictionSuccess) << std::endl;
       out << folly::sformat("Tier {:,} -> Cache Hits: {:,}", i,
                               tierStats[i].numGets) << std::endl;
-      out << folly::sformat("Tier {:,} -> Used Size: {:,}B", i,
+      out << folly::sformat("Tier {:,} -> Used Size: {:,} B", i,
                               tierStats[i].usedSize) << std::endl;
     }
     if (numCacheGets > 0) {
@@ -328,6 +328,22 @@ struct Stats {
       out << folly::sformat("Hit Ratio     : {:6.2f}%", overallHitRatio)
           << std::endl;
 
+      for (auto i = 0U; i < this->tierStats.size(); i++) {
+        out << folly::sformat("Tier {:,} -> Eviction attempts: {:,}", i,
+                this->tierStats[i].numEvictionAttempts -
+                  prevStats.tierStats[i].numEvictionAttempts)
+            << std::endl;
+        out << folly::sformat("Tier {:,} -> Eviction success: {:,}", i,
+                this->tierStats[i].numEvictionSuccess -
+                  prevStats.tierStats[i].numEvictionSuccess)
+            << std::endl;
+        out << folly::sformat("Tier {:,} -> Cache Hits: {:,}", i,
+                this->tierStats[i].numGets - prevStats.tierStats[i].numGets)
+            << std::endl;
+        out << folly::sformat("Tier {:,} -> Used Size: {:,} B", i,
+                this->tierStats[i].usedSize - prevStats.tierStats[i].usedSize)
+            << std::endl;
+      }
       const double ramHitRatio =
           invertPctFn(numCacheGetMiss - prevStats.numCacheGetMiss,
                       numCacheGets - prevStats.numCacheGets);
