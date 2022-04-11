@@ -27,8 +27,8 @@ namespace cachelib {
 namespace cachebench {
 
 struct TierStats {
-  uint64_t numEvictionAttempts{0};
-  uint64_t numEvictionSuccess{0};
+  uint64_t numMemoryEvictionAttempts{0};
+  uint64_t numMemoryEvictionSuccess{0};
   uint64_t numGets{0};
   uint64_t usedSize{0};
 
@@ -36,8 +36,8 @@ struct TierStats {
             uint64_t evicSuccesses,
             uint64_t gets,
             uint64_t size ) :
-    numEvictionAttempts(evicAttempts),
-    numEvictionSuccess(evicSuccesses),
+    numMemoryEvictionAttempts(evicAttempts),
+    numMemoryEvictionSuccess(evicSuccesses),
     numGets(gets),
     usedSize(size) {};
 };
@@ -136,9 +136,9 @@ struct Stats {
     out << folly::sformat("RAM Evictions : {:,}", numEvictions) << std::endl;
     for (auto i = 0U; i < tierStats.size(); i++) {
       out << folly::sformat("Tier {:,} -> Eviction attempts: {:,}", i,
-                              tierStats[i].numEvictionAttempts) << std::endl;
+                              tierStats[i].numMemoryEvictionAttempts) << std::endl;
       out << folly::sformat("Tier {:,} -> Eviction success: {:,}", i,
-                              tierStats[i].numEvictionSuccess) << std::endl;
+                              tierStats[i].numMemoryEvictionSuccess) << std::endl;
       out << folly::sformat("Tier {:,} -> Cache Hits: {:,}", i,
                               tierStats[i].numGets) << std::endl;
       out << folly::sformat("Tier {:,} -> Used Size: {:,} B", i,
@@ -330,12 +330,12 @@ struct Stats {
 
       for (auto i = 0U; i < this->tierStats.size(); i++) {
         out << folly::sformat("Tier {:,} -> Eviction attempts: {:,}", i,
-                this->tierStats[i].numEvictionAttempts -
-                  prevStats.tierStats[i].numEvictionAttempts)
+                this->tierStats[i].numMemoryEvictionAttempts -
+                  prevStats.tierStats[i].numMemoryEvictionAttempts)
             << std::endl;
         out << folly::sformat("Tier {:,} -> Eviction success: {:,}", i,
-                this->tierStats[i].numEvictionSuccess -
-                  prevStats.tierStats[i].numEvictionSuccess)
+                this->tierStats[i].numMemoryEvictionSuccess -
+                  prevStats.tierStats[i].numMemoryEvictionSuccess)
             << std::endl;
         out << folly::sformat("Tier {:,} -> Cache Hits: {:,}", i,
                 this->tierStats[i].numGets - prevStats.tierStats[i].numGets)

@@ -36,10 +36,10 @@ using PerPoolClassAtomicCounters =
 
 struct ShmTierStats {
   // number of eviction attempts per tier
-  AtomicCounter numEvictionAttempts{0};
+  AtomicCounter numMemoryEvictionAttempts{0};
 
   // number of eviction successes per tier
-  PerPoolClassAtomicCounters numEvictionSuccess;
+  PerPoolClassAtomicCounters numMemoryEvictionSuccess;
 
   // tier access count
   AtomicCounter numGets{0};

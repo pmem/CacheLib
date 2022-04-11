@@ -305,10 +305,10 @@ struct Stats;
 // Stats that apply to each cache tier
 struct CacheTierStats {
   // total number of eviction attempts for a tier
-  uint64_t numEvictionAttempts;
+  uint64_t numMemoryEvictionAttempts;
 
   // number of eviction attempt successes for a tier
-  uint64_t numEvictionSuccess;
+  uint64_t numMemoryEvictionSuccess;
 
   // number of access requests
   uint64_t numGets;
@@ -320,8 +320,8 @@ struct CacheTierStats {
                   uint64_t evicSuccess,
                   uint64_t numGets,
                   uint64_t size ) :
-    numEvictionAttempts(evicAttempts),
-    numEvictionSuccess(evicSuccess),
+    numMemoryEvictionAttempts(evicAttempts),
+    numMemoryEvictionSuccess(evicSuccess),
     numGets(numGets),
     usedSize(size) {};
 };

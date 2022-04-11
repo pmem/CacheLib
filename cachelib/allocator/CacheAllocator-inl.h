@@ -1465,12 +1465,12 @@ CacheAllocator<CacheTrait>::findEviction(TierId tid, PoolId pid, ClassId cid) {
     // evict what we think as parent and see if the eviction of parent
     // recycles the child we intend to.
     
-    stats_.shmTierStats[tid].numEvictionAttempts.inc();
+    stats_.shmTierStats[tid].numMemoryEvictionAttempts.inc();
     ItemHandle toReleaseHandle = tryEvictToNextMemoryTier(tid, pid, itr);
     bool movedToNextTier = false;
     if(toReleaseHandle) {
       movedToNextTier = true;
-      stats_.shmTierStats[tid].numEvictionSuccess[pid][cid].inc();
+      stats_.shmTierStats[tid].numMemoryEvictionSuccess[pid][cid].inc();
     } else {
       toReleaseHandle =
           itr->isChainedItem()
@@ -2924,7 +2924,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
   auto startTime = util::getCurrentTimeSec();
   while (true) {
     stats_.numEvictionAttempts.inc();
-    stats_.shmTierStats[tid].numEvictionAttempts.inc();
+    stats_.shmTierStats[tid].numMemoryEvictionAttempts.inc();
 
     // if the item is already in a state where only the moving bit is set,
     // nothing needs to be done. We simply need to unmark moving bit and free
@@ -2959,7 +2959,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
       }
 
       stats_.numEvictionSuccesses.inc();
-      stats_.shmTierStats[tid].numEvictionSuccess[allocInfo.poolId][allocInfo.classId].inc();
+      stats_.shmTierStats[tid].numMemoryEvictionSuccess[allocInfo.poolId][allocInfo.classId].inc();
 
       // we have the last handle. no longer need to hold on to the moving bit
       item.unmarkMoving();

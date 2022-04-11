@@ -129,8 +129,8 @@ void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
 
   for (auto& tier : shmTierStats) {
     ret.tierStats.emplace_back(
-      tier.numEvictionAttempts.get(),
-      accum(tier.numEvictionSuccess),
+      tier.numMemoryEvictionAttempts.get(),
+      accum(tier.numMemoryEvictionSuccess),
       tier.numGets.get(),
       tier.usedSize.get());
   }

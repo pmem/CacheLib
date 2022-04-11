@@ -517,8 +517,8 @@ Stats Cache<Allocator>::getStats() const {
   Stats ret;
   ret.numEvictions = aggregate.numEvictions();
   for (auto& tier : cacheStats.tierStats) {
-    ret.tierStats.emplace_back( tier.numEvictionAttempts,
-                                tier.numEvictionSuccess,
+    ret.tierStats.emplace_back( tier.numMemoryEvictionAttempts,
+                                tier.numMemoryEvictionSuccess,
                                 tier.numGets,
                                 tier.usedSize);
   }
