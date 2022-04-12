@@ -391,6 +391,7 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
 
     handle = acquire(new (memory) Item(key, size, creationTime, expiryTime));
     if (handle) {
+      (*stats.usedSize)[pid][cid].set(allocator_[tid]->getPoolUsedSize(pid));
       handle.markNascent();
       (*stats_.fragmentationSize)[pid][cid].add(
           util::getFragmentation(*this, *handle));
@@ -2562,6 +2563,7 @@ PoolStats CacheAllocator<CacheTrait>::getPoolStats(PoolId poolId) const {
             (*stats_.fragmentationSize)[poolId][cid].get(), classHits,
             (*stats_.chainedItemEvictions)[poolId][cid].get(),
             (*stats_.regularItemEvictions)[poolId][cid].get(),
+            (*stats_.usedSize)[poolId][cid].get(),
             container.getStats()}});
       totalHits += classHits;
     }

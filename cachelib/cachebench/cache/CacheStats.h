@@ -27,6 +27,7 @@ namespace cachelib {
 namespace cachebench {
 struct Stats {
   uint64_t numEvictions{0};
+  std::vector<uint64_t> poolUsedSize;
   uint64_t numItems{0};
 
   uint64_t allocAttempts{0};
@@ -114,7 +115,10 @@ struct Stats {
                           invertPctFn(allocFailures, allocAttempts))
         << std::endl;
     out << folly::sformat("RAM Evictions : {:,}", numEvictions) << std::endl;
-
+    for (auto pid = 0U; pid < poolUsedSize.size(); pid++) {
+      out << folly::sformat("Pool {:,} used size : {:,}", pid, poolUsedSize[pid])
+          << std::endl;
+    }
     if (numCacheGets > 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;
       out << folly::sformat("Hit Ratio     : {:6.2f}%", overallHitRatio)
