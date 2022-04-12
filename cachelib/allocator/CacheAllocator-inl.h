@@ -524,7 +524,7 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
 }
 
 template <typename CacheTrait>
-typename CacheAllocator<CacheTrait>::ItemHandle
+typename CacheAllocator<CacheTrait>::WriteHandle
 CacheAllocator<CacheTrait>::allocateInternal(PoolId pid,
                                              typename Item::Key key,
                                              uint32_t size,
@@ -1296,14 +1296,13 @@ bool CacheAllocator<CacheTrait>::addWaitContextForMovingItem(
 }
 
 template <typename CacheTrait>
-template <typename ItemPtr>
 typename CacheAllocator<CacheTrait>::ItemHandle
 CacheAllocator<CacheTrait>::moveRegularItemOnEviction(
-    ItemPtr& oldItemPtr, ItemHandle& newItemHdl) {
+    Item& oldItem, ItemHandle& newItemHdl) {
+  XDCHECK(oldItem.isMoving());
   // TODO: should we introduce new latency tracker. E.g. evictRegularLatency_
   // ??? util::LatencyTracker tracker{stats_.evictRegularLatency_};
 
-  Item& oldItem = *oldItemPtr;
   if (!oldItem.isAccessible() || oldItem.isExpired()) {
     return {};
   }
@@ -1359,7 +1358,7 @@ CacheAllocator<CacheTrait>::moveRegularItemOnEviction(
   // it is unsafe to replace the old item with a new one, so we should
   // also abort.
   if (!accessContainer_->replaceIf(oldItem, *newItemHdl,
-                                   itemEvictionPredicate)) {
+                                   itemMovingPredicate)) {
     return {};
   }
 
@@ -1379,7 +1378,7 @@ CacheAllocator<CacheTrait>::moveRegularItemOnEviction(
 
   // Inside the MM container's lock, this checks if the old item exists to
   // make sure that no other thread removed it, and only then replaces it.
-  if (!replaceInMMContainer(oldItemPtr, *newItemHdl)) {
+  if (!replaceInMMContainer(oldItem, *newItemHdl)) {
     accessContainer_->remove(*newItemHdl);
     return {};
   }
@@ -1569,42 +1568,45 @@ CacheAllocator<CacheTrait>::findEviction(TierId tid, PoolId pid, ClassId cid) {
          itr) {
     ++searchTries;
 
-    Item* candidate = itr.get();
+    Item* toRecycle = itr.get();
+
+    Item* candidate =
+        toRecycle->isChainedItem()
+            ? &toRecycle->asChainedItem().getParentItem(compressor_)
+            : toRecycle;
+
+    // make sure no other thead is evicting the item
+    if (candidate->getRefCount() != 0 || !candidate->markMoving()) {
+      ++itr;
+      continue;
+    }
+  
+    itr.destroy();
+
     // for chained items, the ownership of the parent can change. We try to
     // evict what we think as parent and see if the eviction of parent
     // recycles the child we intend to.
-    
-    ItemHandle toReleaseHandle = tryEvictToNextMemoryTier(tid, pid, itr);
-    bool movedToNextTier = false;
-    if(toReleaseHandle) {
-      movedToNextTier = true;
-    } else {
-      toReleaseHandle =
-          itr->isChainedItem()
-              ? advanceIteratorAndTryEvictChainedItem(tid, pid, itr)
-              : advanceIteratorAndTryEvictRegularItem(tid, pid, mmContainer, itr);
-    }
+    auto toReleaseHandle =
+        evictNormalItem(*candidate, true /* skipIfTokenInvalid */);
+    auto ref = candidate->unmarkMoving();
 
-    if (toReleaseHandle) {
-      if (toReleaseHandle->hasChainedItem()) {
+    if (toReleaseHandle || ref == 0u) {
+      if (candidate->hasChainedItem()) {
         (*stats_.chainedItemEvictions)[pid][cid].inc();
       } else {
         (*stats_.regularItemEvictions)[pid][cid].inc();
       }
-
-      if (auto eventTracker = getEventTracker()) {
-        eventTracker->record(
-            AllocatorApiEvent::DRAM_EVICT, toReleaseHandle->getKey(),
-            AllocatorApiResult::EVICTED, toReleaseHandle->getSize(),
-            toReleaseHandle->getConfiguredTTL().count());
+    } else {
+      if (candidate->hasChainedItem()) {
+        stats_.evictFailParentAC.inc();
+      } else {
+        stats_.evictFailAC.inc();
       }
-      // Invalidate iterator since later on we may use this mmContainer
-      // again, which cannot be done unless we drop this iterator
-      itr.destroy();
+    }
 
-      // we must be the last handle and for chained items, this will be
-      // the parent.
-      XDCHECK(toReleaseHandle.get() == candidate || candidate->isChainedItem());
+    if (toReleaseHandle) {
+      XDCHECK(toReleaseHandle.get() == candidate);
+      XDCHECK(toRecycle == candidate || toRecycle->isChainedItem());
       XDCHECK_EQ(1u, toReleaseHandle->getRefCount());
 
       // We manually release the item here because we don't want to
@@ -1620,16 +1622,21 @@ CacheAllocator<CacheTrait>::findEviction(TierId tid, PoolId pid, ClassId cid) {
       // recycle the candidate.
       if (ReleaseRes::kRecycled ==
           releaseBackToAllocator(itemToRelease, RemoveContext::kEviction,
-                                 /* isNascent */ movedToNextTier, candidate)) {
-        return candidate;
+                                 /* isNascent */ false, toRecycle)) {
+        return toRecycle;
+      }
+    } else if (ref == 0u) {
+      // it's safe to recycle the item here as there are no more
+      // references and the item could not been marked as moving
+      // by other thread since it's detached from MMContainer.
+      if (ReleaseRes::kRecycled ==
+          releaseBackToAllocator(*candidate, RemoveContext::kEviction,
+                                 /* isNascent */ false, toRecycle)) {
+        return toRecycle;
       }
     }
 
-    // If we destroyed the itr to possibly evict and failed, we restart
-    // from the beginning again
-    if (!itr) {
-      itr.resetToBegin();
-    }
+    itr.resetToBegin();
   }
   return nullptr;
 }
@@ -1683,24 +1690,23 @@ bool CacheAllocator<CacheTrait>::shouldWriteToNvmCacheExclusive(
 }
 
 template <typename CacheTrait>
-template <typename ItemPtr>
-typename CacheAllocator<CacheTrait>::ItemHandle
+typename CacheAllocator<CacheTrait>::WriteHandle
 CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
-    TierId tid, PoolId pid, ItemPtr& item) {
-  if(item->isChainedItem()) return {}; // TODO: We do not support ChainedItem yet
-  if(item->isExpired()) return acquire(item);
+    TierId tid, PoolId pid, Item& item) {
+  if(item.isChainedItem()) return {}; // TODO: We do not support ChainedItem yet
+  if(item.isExpired()) return acquire(&item);
 
   TierId nextTier = tid; // TODO - calculate this based on some admission policy
   while (++nextTier < numTiers_) { // try to evict down to the next memory tiers
     // allocateInternal might trigger another eviction
     auto newItemHdl = allocateInternalTier(nextTier, pid,
-                     item->getKey(),
-                     item->getSize(),
-                     item->getCreationTime(),
-                     item->getExpiryTime());
+                     item.getKey(),
+                     item.getSize(),
+                     item.getCreationTime(),
+                     item.getExpiryTime());
 
     if (newItemHdl) {
-      XDCHECK_EQ(newItemHdl->getSize(), item->getSize());
+      XDCHECK_EQ(newItemHdl->getSize(), item.getSize());
 
       return moveRegularItemOnEviction(item, newItemHdl);
     }
@@ -1710,149 +1716,11 @@ CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
 }
 
 template <typename CacheTrait>
-typename CacheAllocator<CacheTrait>::ItemHandle
-CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(Item* item) {
-  auto tid = getTierId(*item);
-  auto pid = allocator_[tid]->getAllocInfo(item->getMemory()).poolId;
-  return tryEvictToNextMemoryTier(tid, pid, item);
-}
-
-template <typename CacheTrait>
-typename CacheAllocator<CacheTrait>::ItemHandle
-CacheAllocator<CacheTrait>::advanceIteratorAndTryEvictRegularItem(
-    TierId tid, PoolId pid, MMContainer& mmContainer, EvictionIterator& itr) {
-  Item& item = *itr;
-
-  const bool evictToNvmCache = shouldWriteToNvmCache(item);
-
-  auto token = evictToNvmCache ? nvmCache_->createPutToken(item.getKey())
-                               : typename NvmCacheT::PutToken{};
-  // record the in-flight eviciton. If not, we move on to next item to avoid
-  // stalling eviction.
-  if (evictToNvmCache && !token.isValid()) {
-    ++itr;
-    stats_.evictFailConcurrentFill.inc();
-    return WriteHandle{};
-  }
-
-  // If there are other accessors, we should abort. Acquire a handle here since
-  // if we remove the item from both access containers and mm containers
-  // below, we will need a handle to ensure proper cleanup in case we end up
-  // not evicting this item
-  auto evictHandle = accessContainer_->removeIf(item, &itemEvictionPredicate);
-
-  if (!evictHandle) {
-    ++itr;
-    stats_.evictFailAC.inc();
-    return evictHandle;
-  }
-
-  mmContainer.remove(itr);
-  XDCHECK_EQ(reinterpret_cast<uintptr_t>(evictHandle.get()),
-             reinterpret_cast<uintptr_t>(&item));
-  XDCHECK(!evictHandle->isInMMContainer());
-  XDCHECK(!evictHandle->isAccessible());
-
-  // If the item is now marked as moving, that means its corresponding slab is
-  // being released right now. So, we look for the next item that is eligible
-  // for eviction. It is safe to destroy the handle here since the moving bit
-  // is set. Iterator was already advance by the remove call above.
-  if (evictHandle->isMoving()) {
-    stats_.evictFailMove.inc();
-    return WriteHandle{};
-  }
-
-  // Invalidate iterator since later on if we are not evicting this
-  // item, we may need to rely on the handle we created above to ensure
-  // proper cleanup if the item's raw refcount has dropped to 0.
-  // And since this item may be a parent item that has some child items
-  // in this very same mmContainer, we need to make sure we drop this
-  // exclusive iterator so we can gain access to it when we're cleaning
-  // up the child items
-  itr.destroy();
-
-  // Ensure that there are no accessors after removing from the access
-  // container
-  XDCHECK(evictHandle->getRefCount() == 1);
-
-  if (evictToNvmCache && shouldWriteToNvmCacheExclusive(item)) {
-    XDCHECK(token.isValid());
-    nvmCache_->put(evictHandle, std::move(token));
-  }
-  return evictHandle;
-}
-
-template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::WriteHandle
-CacheAllocator<CacheTrait>::advanceIteratorAndTryEvictChainedItem(
-    TierId tid, PoolId pid, EvictionIterator& itr) {
-  XDCHECK(itr->isChainedItem());
-
-  ChainedItem* candidate = &itr->asChainedItem();
-  ++itr;
-
-  // The parent could change at any point through transferChain. However, if
-  // that happens, we would realize that the releaseBackToAllocator return
-  // kNotRecycled and we would try another chained item, leading to transient
-  // failure.
-  auto& parent = candidate->getParentItem(compressor_);
-
-  const bool evictToNvmCache = shouldWriteToNvmCache(parent);
-
-  auto token = evictToNvmCache ? nvmCache_->createPutToken(parent.getKey())
-                               : typename NvmCacheT::PutToken{};
-
-  // if token is invalid, return. iterator is already advanced.
-  if (evictToNvmCache && !token.isValid()) {
-    stats_.evictFailConcurrentFill.inc();
-    return WriteHandle{};
-  }
-
-  // check if the parent exists in the hashtable and refcount is drained.
-  auto parentHandle =
-      accessContainer_->removeIf(parent, &itemEvictionPredicate);
-  if (!parentHandle) {
-    stats_.evictFailParentAC.inc();
-    return parentHandle;
-  }
-
-  // Invalidate iterator since later on we may use the mmContainer
-  // associated with this iterator which cannot be done unless we
-  // drop this iterator
-  //
-  // This must be done once we know the parent is not nullptr.
-  // Since we can very well be the last holder of this parent item,
-  // which may have a chained item that is linked in this MM container.
-  itr.destroy();
-
-  // Ensure we have the correct parent and we're the only user of the
-  // parent, then free it from access container. Otherwise, we abort
-  XDCHECK_EQ(reinterpret_cast<uintptr_t>(&parent),
-             reinterpret_cast<uintptr_t>(parentHandle.get()));
-  XDCHECK_EQ(1u, parent.getRefCount());
-
-  removeFromMMContainer(*parentHandle);
-
-  XDCHECK(!parent.isInMMContainer());
-  XDCHECK(!parent.isAccessible());
-
-  // TODO: add multi-tier support (similar as for unchained items)
-
-  // We need to make sure the parent is not marked as moving
-  // and we're the only holder of the parent item. Safe to destroy the handle
-  // here since moving bit is set.
-  if (parentHandle->isMoving()) {
-    stats_.evictFailParentMove.inc();
-    return WriteHandle{};
-  }
-
-  if (evictToNvmCache && shouldWriteToNvmCacheExclusive(*parentHandle)) {
-    XDCHECK(token.isValid());
-    XDCHECK(parentHandle->hasChainedItem());
-    nvmCache_->put(parentHandle, std::move(token));
-  }
-
-  return parentHandle;
+CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(Item& item) {
+    auto tid = getTierId(item);
+    auto pid = allocator_[tid]->getAllocInfo(item.getMemory()).poolId;
+    return tryEvictToNextMemoryTier(tid, pid, item);
 }
 
 template <typename CacheTrait>
@@ -3097,7 +2965,7 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
     auto owningHandle =
         item.isChainedItem()
             ? evictChainedItemForSlabRelease(item.asChainedItem())
-            : evictNormalItemForSlabRelease(item);
+            : evictNormalItem(item);
 
     // we managed to evict the corresponding owner of the item and have the
     // last handle for the owner.
@@ -3153,15 +3021,16 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
 }
 
 template <typename CacheTrait>
-typename CacheAllocator<CacheTrait>::WriteHandle
-CacheAllocator<CacheTrait>::evictNormalItemForSlabRelease(Item& item) {
+typename CacheAllocator<CacheTrait>::ItemHandle
+CacheAllocator<CacheTrait>::evictNormalItem(Item& item,
+                                            bool skipIfTokenInvalid) {
   XDCHECK(item.isMoving());
 
   if (item.isOnlyMoving()) {
     return WriteHandle{};
   }
 
-  auto evictHandle = tryEvictToNextMemoryTier(&item);
+  auto evictHandle = tryEvictToNextMemoryTier(item);
   if(evictHandle) return evictHandle;
 
   auto predicate = [](const Item& it) { return it.getRefCount() == 0; };
@@ -3169,6 +3038,11 @@ CacheAllocator<CacheTrait>::evictNormalItemForSlabRelease(Item& item) {
   const bool evictToNvmCache = shouldWriteToNvmCache(item);
   auto token = evictToNvmCache ? nvmCache_->createPutToken(item.getKey())
                                : typename NvmCacheT::PutToken{};
+
+  if (skipIfTokenInvalid && evictToNvmCache && !token.isValid()) {
+    stats_.evictFailConcurrentFill.inc();
+    return ItemHandle{};
+  }
 
   // We remove the item from both access and mm containers. It doesn't matter
   // if someone else calls remove on the item at this moment, the item cannot
