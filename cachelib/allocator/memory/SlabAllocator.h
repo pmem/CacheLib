@@ -316,6 +316,10 @@ class SlabAllocator {
     return PtrCompressor<PtrType, SlabAllocator>(*this);
   }
 
+  // Retrive used size of a pool
+  // @return used size of Pool
+  size_t getPoolUsedSize(PoolId id);
+
  private:
   // null Slab* presenttation. With 4M Slab size, a valid slab index would never
   // reach 2^16 - 1;

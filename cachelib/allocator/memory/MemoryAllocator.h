@@ -633,6 +633,12 @@ class MemoryAllocator {
     memoryPoolManager_.updateNumSlabsToAdvise(numSlabs);
   }
 
+  // fetch used size of a particular pool
+  // @return used size of the pool
+  size_t getPoolUsedSize(PoolId id) {
+    return slabAllocator_.getPoolUsedSize(id);
+  }
+
  private:
   // @param memory    pointer to the memory.
   // @return          the MemoryPool corresponding to the memory.

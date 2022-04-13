@@ -461,6 +461,7 @@ Stats Cache<Allocator>::getStats() const {
   ret.allocAttempts = cacheStats.allocAttempts;
   ret.allocFailures = cacheStats.allocFailures;
 
+  ret.poolUsedSize.swap(cacheStat.poolUsedSize);
   ret.numCacheGets = cacheStats.numCacheGets;
   ret.numCacheGetMiss = cacheStats.numCacheGetMiss;
   ret.numRamDestructorCalls = cacheStats.numRamDestructorCalls;
