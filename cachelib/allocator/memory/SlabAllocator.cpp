@@ -91,6 +91,13 @@ SlabAllocator::~SlabAllocator() {
   }
 }
 
+size_t SlabAllocator::getPoolUsedSize(PoolId id) {
+  if (id >= memoryPoolSize_.size()) {
+    throw std::invalid_argument(folly::sformat("Invalid pool id {}.", id));
+  }
+  return memoryPoolSize_[id];
+}
+
 void SlabAllocator::stopMemoryLocker() {
   if (memoryLocker_.joinable()) {
     stopLocking_ = true;
