@@ -49,7 +49,7 @@ struct SizeVerify {};
 
 void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
 #ifndef SKIP_SIZE_VERIFY
-  SizeVerify<sizeof(Stats)> a = SizeVerify<16144>{};
+  SizeVerify<sizeof(Stats)> a = SizeVerify<16672>{};
   std::ignore = a;
 #endif
   ret.numCacheGets = numCacheGets.get();
@@ -124,6 +124,10 @@ void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
   ret.allocFailures = accum(*allocFailures);
   ret.numEvictions = accum(*chainedItemEvictions);
   ret.numEvictions += accum(*regularItemEvictions);
+
+  for (const auto& x : usedSize_) {
+    ret.poolUsedSize.emplace_back(x.get());
+  }
 
   ret.invalidAllocs = invalidAllocs.get();
   ret.numRefcountOverflow = numRefcountOverflow.get();

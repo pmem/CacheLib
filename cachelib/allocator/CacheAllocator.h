@@ -1110,6 +1110,12 @@ class CacheAllocator : public CacheBase {
   // Whether this cache allocator was created on shared memory.
   bool isOnShm() const noexcept { return isOnShm_; }
 
+  ClassId getAllocClassId(PoolId pid,
+                          typename Item::Key key,
+                          uint32_t size) const;
+
+  uint64_t getAllocationSize(ClassId cid, PoolId pid) const;
+
   // Whether NvmCache is currently enabled
   bool isNvmCacheEnabled() const noexcept {
     return nvmCache_ && nvmCache_->isEnabled();

@@ -288,6 +288,20 @@ CacheAllocator<CacheTrait>::allocate(PoolId poolId,
 }
 
 template <typename CacheTrait>
+ClassId CacheAllocator<CacheTrait>::getAllocClassId(PoolId pid,
+                                                    typename Item::Key key,
+                                                    uint32_t size) const {
+  const auto requiredSize = Item::getRequiredSize(key, size);
+  return allocator_->getAllocationClassId(pid, requiredSize);
+}
+
+template <typename CacheTrait>
+uint64_t CacheAllocator<CacheTrait>::getAllocationSize(ClassId cid,
+                                                       PoolId pid) const {
+  return getPool(pid).getAllocationClass(cid).getAllocSize();
+}
+
+template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::WriteHandle
 CacheAllocator<CacheTrait>::allocateInternal(PoolId pid,
                                              typename Item::Key key,
@@ -324,6 +338,7 @@ CacheAllocator<CacheTrait>::allocateInternal(PoolId pid,
 
     handle = acquire(new (memory) Item(key, size, creationTime, expiryTime));
     if (handle) {
+      stats_.usedSize_[pid].set(allocator_->getPoolUsedSize(pid));
       handle.markNascent();
       (*stats_.fragmentationSize)[pid][cid].add(
           util::getFragmentation(*this, *handle));

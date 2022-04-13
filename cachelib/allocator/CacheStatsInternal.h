@@ -221,6 +221,8 @@ struct Stats {
   std::unique_ptr<PerPoolClassAtomicCounters> chainedItemEvictions{};
   std::unique_ptr<PerPoolClassAtomicCounters> regularItemEvictions{};
 
+  std::array<AtomicCounter, MemoryPoolManager::kMaxPools> usedSize_;
+
   // Eviction failures due to parent cannot be removed from access container
   AtomicCounter evictFailParentAC{0};
 

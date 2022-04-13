@@ -416,6 +416,9 @@ struct GlobalCacheStats {
   // number of evictions across all the pools in the cache.
   uint64_t numEvictions{0};
 
+  // Used size of all the pools
+  std::vector<uint64_t> poolUsedSize;
+
   // number of allocation attempts with invalid input params.
   uint64_t invalidAllocs{0};
 

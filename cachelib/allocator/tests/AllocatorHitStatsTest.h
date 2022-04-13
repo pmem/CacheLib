@@ -25,6 +25,7 @@
 #include <mutex>
 #include <set>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "cachelib/allocator/CacheAllocator.h"
@@ -247,16 +248,30 @@ class AllocatorHitStatsTest : public SlabAllocatorTestBase {
     std::vector<std::string> keys;
     const unsigned int nKeys = 1000;
     unsigned int initialAllocs = 0;
+    std::unordered_map<ClassId, uint64_t> pool1Alloc;
     while (keys.size() != nKeys) {
       const auto keyLen = folly::Random::rand32(10, 100);
       const auto allocSize = folly::Random::rand32(100, 1024 * 1024 - 1000);
       auto str = cachelib::test_util::getRandomAsciiStr(keyLen);
       ++initialAllocs;
+      auto classId = alloc.getAllocClassId(poolId, str, allocSize);
       auto handle = util::allocateAccessible(alloc, poolId, str, allocSize);
       if (handle) {
         keys.push_back(str);
+        pool1Alloc[classId] += alloc.getAllocationSize(classId, poolId);
       }
     }
+
+    // Adjust pool alloc size for each class to its ceiling slab size
+    // and calculate the total
+    uint64_t pool1AllocSize = 0;
+    for (const auto& cAlloc : pool1Alloc) {
+      pool1AllocSize += (cAlloc.second + Slab::kSize - 1) / Slab::kSize;
+    }
+    pool1AllocSize *= Slab::kSize;
+    const auto tempCacheStats = alloc.getGlobalCacheStats();
+    ASSERT_EQ(tempCacheStats.poolUsedSize.size(), MemoryPoolManager::kMaxPools);
+    ASSERT_EQ(tempCacheStats.poolUsedSize[0], pool1AllocSize);
 
     if (!evictedKeys.empty()) {
       for (const auto& key : evictedKeys) {
