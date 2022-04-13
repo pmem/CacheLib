@@ -38,7 +38,7 @@ show_help_and_exit()
   base=$(basename "$0")
   echo "CacheLib dependencies builder
 
-usage: $base [-BdhiIjStv] NAME
+usage: $base [-BSdhijtv] NAME
 
 options:
   -B    skip build step
@@ -48,8 +48,6 @@ options:
   -h    This help screen
   -i    install after build using 'sudo make install'
         (default is to build but not install)
-  -I    Add ittapi to your build
-        (VTune profiling abilities)
   -j    build using all available CPUs ('make -j')
         (default is to use single CPU)
   -S    skip git-clone/git-pull step
@@ -79,14 +77,12 @@ debug_build=
 build_tests=
 show_help=
 many_jobs=
-add_itt=
 verbose=
-while getopts :BSIdhijtv param
+while getopts :BSdhijtv param
 do
   case $param in
     i) install=yes ;;
     B) build= ;;
-    I) add_itt=yes ;;
     S) source= ;;
     h) show_help=yes ;;
     d) debug_build=yes ;;
@@ -163,6 +159,7 @@ case "$1" in
     REPODIR=cachelib/external/$NAME
     SRCDIR=$REPODIR
     external_git_clone=yes
+    external_git_tag=8.0.1
     cmake_custom_params="-DBUILD_SHARED_LIBS=ON"
     if test "$build_tests" = "yes" ; then
         cmake_custom_params="$cmake_custom_params -DFMT_TEST=YES"
@@ -349,30 +346,16 @@ fi
 mkdir -p "build-$NAME" || die "failed to create build-$NAME directory"
 cd "build-$NAME" || die "'cd' failed"
 
-# Grab the location of the build-ittapi folder
-if test "$add_itt" ; then
-  RED='\033[1;31m'
-  GREEN='\033[1;32m'
-  NC='\033[0m' # No Color
-  ITTDIR=$(find / -type d -name build-ittapi 2> /dev/null)
-  [ -d "$ITTDIR" ] && echo -e "${GREEN}Directory '$ITTDIR' exists.${NC}" || echo -e "${RED}Error: Directory '$ITTDIR' does not exists yet.${NC}"
-fi
-
 ##
 ## Build
 ##
 if test "$build" ; then
-  # If add_itt is true and we are in the build-ittapi folder; we will then create the .a library files.
-  if test "$add_itt" = yes && [ "$PWD" = "$ITTDIR" ] ; then
-    python3 ../cachelib/external/ittapi/buildall.py -c
-    cd ../build-ittapi
-    cp ../cachelib/external/ittapi/CMakeLists.txt .
-    cp -R ../cachelib/external/ittapi/include .
-    python3 ../cachelib/external/ittapi/buildall.py -d -v
-    cp build_linux/32/bin/libittnotify.a ../opt/cachelib/lib
-    cp build_linux/64/bin/libittnotify.a ../opt/cachelib/lib64
-  # else we will continue making the other build files.
-  elif [ ! "$PWD" = "$ITTDIR" ] ; then
+  if [ $NAME = "ittapi" ] ; then
+    pushd ../$REPODIR/
+    python3 buildall.py -c
+    python3 buildall.py -d -v || die "ITT API build failed on $SRCDIR"
+    popd
+  else
     # shellcheck disable=SC2086
     cmake $CMAKE_PARAMS "../$SRCDIR" || die "cmake failed on $SRCDIR"
     # shellcheck disable=SC2086
@@ -392,7 +375,10 @@ fi
 ##
 
 if test "$install" ; then
-  if [ ! "$PWD" = "$ITTDIR" ] ; then
+  if [ $NAME = "ittapi" ] ; then
+    cp ../$REPODIR/build_linux/32/bin/libittnotify.a $PREFIX/lib
+    cp ../$REPODIR/build_linux/64/bin/libittnotify.a $PREFIX/lib64
+  else
     # shellcheck disable=SC2086
     make $MAKE_PARAMS install || die "make install failed"
   fi

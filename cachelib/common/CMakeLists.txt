@@ -30,6 +30,8 @@ add_library (cachelib_common
 )
 add_dependencies(cachelib_common thrift_generated_files)
 
+find_library(ITTAPI_LIB NAMES libittnotify.a)
+
 target_link_libraries(cachelib_common PUBLIC
   Threads::Threads
   FBThrift::thriftcpp2
@@ -39,6 +41,7 @@ target_link_libraries(cachelib_common PUBLIC
   Folly::folly_exception_tracer
   Folly::folly_exception_tracer_base
   Folly::folly_exception_counter
+  ${ITTAPI_LIB}
 )
 
 install(TARGETS cachelib_common
