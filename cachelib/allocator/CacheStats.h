@@ -121,6 +121,9 @@ struct CacheStat {
   // number of regular items that were evicted from this classId
   uint64_t regularItemEvictions;
 
+  // used size of this classId
+  uint64_t usedSize;
+
   // the stats from the mm container
   MMContainerStat containerStat;
 
@@ -415,6 +418,9 @@ struct GlobalCacheStats {
 
   // number of evictions across all the pools in the cache.
   uint64_t numEvictions{0};
+
+  // Used size of all the pools
+  std::vector<uint64_t> poolUsedSize;
 
   // number of allocation attempts with invalid input params.
   uint64_t invalidAllocs{0};

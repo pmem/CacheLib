@@ -220,6 +220,7 @@ struct Stats {
   std::unique_ptr<PerPoolClassAtomicCounters> fragmentationSize{};
   std::unique_ptr<PerPoolClassAtomicCounters> chainedItemEvictions{};
   std::unique_ptr<PerPoolClassAtomicCounters> regularItemEvictions{};
+  std::unique_ptr<PerPoolClassAtomicCounters> usedSize{};
 
   // Eviction failures due to parent cannot be removed from access container
   AtomicCounter evictFailParentAC{0};

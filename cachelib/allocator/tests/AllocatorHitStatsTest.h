@@ -393,6 +393,10 @@ class AllocatorHitStatsTest : public SlabAllocatorTestBase {
     ASSERT_EQ(nThreads * numHits, poolStats.numPoolGetHits);
     ASSERT_EQ(nThreads * (numHits + numMiss), globalCacheStats.numCacheGets);
     ASSERT_EQ(nThreads * numMiss, globalCacheStats.numCacheGetMiss);
+    ASSERT_EQ(globalCacheStats.poolUsedSize.size(),
+              MemoryPoolManager::kMaxPools);
+    ASSERT_EQ(4521459712, globalCacheStats.poolUsedSize[0]);
+    ASSERT_EQ(4521459712, globalCacheStats.poolUsedSize[1]);
 
     uint64_t totalHits = 0;
     for (const auto& classId : poolStats.getClassIds()) {

@@ -29,6 +29,7 @@ void Stats::init() {
   allocFailures = std::make_unique<PerPoolClassAtomicCounters>();
   chainedItemEvictions = std::make_unique<PerPoolClassAtomicCounters>();
   regularItemEvictions = std::make_unique<PerPoolClassAtomicCounters>();
+  usedSize = std::make_unique<PerPoolClassAtomicCounters>();
   auto initToZero = [](auto& a) {
     for (auto& s : a) {
       for (auto& c : s) {
@@ -42,6 +43,7 @@ void Stats::init() {
   initToZero(*fragmentationSize);
   initToZero(*chainedItemEvictions);
   initToZero(*regularItemEvictions);
+  initToZero(*usedSize);
 }
 
 template <int>
@@ -125,6 +127,14 @@ void Stats::populateGlobalCacheStats(GlobalCacheStats& ret) const {
   ret.numEvictions = accum(*chainedItemEvictions);
   ret.numEvictions += accum(*regularItemEvictions);
 
+  for (const auto& x : *usedSize) {
+    uint64_t sum{0};
+    for (const auto& v : x) {
+      sum += v.get();
+    }
+    ret.poolUsedSize.emplace_back(sum);
+  }
+
   ret.invalidAllocs = invalidAllocs.get();
   ret.numRefcountOverflow = numRefcountOverflow.get();
 
@@ -176,6 +186,7 @@ PoolStats& PoolStats::operator+=(const PoolStats& other) {
       d.numHits += s.numHits;
       d.chainedItemEvictions += s.chainedItemEvictions;
       d.regularItemEvictions += s.regularItemEvictions;
+      d.usedSize += s.usedSize;
     }
 
     // aggregate container stats within CacheStat
