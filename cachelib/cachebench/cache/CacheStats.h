@@ -35,6 +35,7 @@ struct Stats {
   uint64_t numBackgroundEvictions{0};
   uint64_t numBackgroundEvictionsFromSchedule{0};
   uint64_t numBackgroundEvictorRuns{0};
+  uint64_t numBackgroundEvictorClasses{0};
 
   uint64_t numCacheGets{0};
   uint64_t numCacheGetMiss{0};
@@ -103,6 +104,8 @@ struct Stats {
   // what to populate since not all of those are interesting when running
   // cachebench.
   std::unordered_map<std::string, double> nvmCounters;
+  
+  std::map<uint32_t, uint64_t> backgroundEvictionClasses;
 
   // errors from the nvm engine.
   std::unordered_map<std::string, double> nvmErrors;
@@ -124,6 +127,8 @@ struct Stats {
     out << folly::sformat("Background Tier 0 Evictions from schedule() : {:,}", numBackgroundEvictionsFromSchedule) << std::endl;
     
     out << folly::sformat("Background Tier 0 Eviction Runs : {:,}", numBackgroundEvictorRuns) << std::endl;
+    
+    out << folly::sformat("Background Tier 0 Total Classes Searched : {:,}", numBackgroundEvictorClasses) << std::endl;
 
     if (numCacheGets > 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;
@@ -279,6 +284,13 @@ struct Stats {
     if (!nvmCounters.empty()) {
       out << "== NVM Counters Map ==" << std::endl;
       for (const auto& it : nvmCounters) {
+        out << it.first << "  :  " << it.second << std::endl;
+      }
+    }
+    
+    if (!backgroundEvictionClasses.empty()) {
+      out << "== Class Background Eviction Counters Map ==" << std::endl;
+      for (const auto& it : backgroundEvictionClasses) {
         out << it.first << "  :  " << it.second << std::endl;
       }
     }

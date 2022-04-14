@@ -59,6 +59,7 @@ class BackgroundEvictor : public PeriodicWorker {
       tasks_.enqueue(std::make_pair(pid,cid));
   }
   BackgroundEvictorStats getStats() const noexcept;
+  std::map<uint32_t,uint64_t> getClassStats() const noexcept;
 
  private:
   // cache allocator's interface for evicting
@@ -73,10 +74,12 @@ class BackgroundEvictor : public PeriodicWorker {
   // implements the actual logic of running the background evictor
   void work() override final;
   void checkAndRun(PoolId pid);
-  
+ 
+  std::map<uint32_t,uint64_t> evictions_per_class_;
   std::atomic<uint64_t> numEvictedItems_{0};
   std::atomic<uint64_t> numEvictedItemsFromSchedule_{0};
   std::atomic<uint64_t> runCount_{0};
+  std::atomic<uint64_t> totalClasses_{0};
 };
 } // namespace cachelib
 } // namespace facebook

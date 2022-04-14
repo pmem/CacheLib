@@ -294,7 +294,11 @@ struct BackgroundEvictorStats {
   uint64_t numEvictedItemsFromSchedule{0};
 
   // number of times we went executed the thread //TODO: is this def correct?
-  uint64_t numTraversals{0};
+  uint64_t runCount{0};
+
+  uint64_t totalClasses{0};
+
+
 
 };
 

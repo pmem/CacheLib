@@ -62,27 +62,46 @@ void BackgroundEvictor<CacheT>::work() {
 template <typename CacheT>
 void BackgroundEvictor<CacheT>::checkAndRun(PoolId pid) {    
   const auto& mpStats = cache_.getPoolByTid(pid,tid_).getStats();
+  unsigned int evictions = 0;
+  unsigned int classes = 0;
   for (auto& cid : mpStats.classIds) {
       auto batch = strategy_->calculateBatchSize(cache_,tid_,pid,cid);
-      if (!batch)
+      if (!batch) {
+        classes++;
         continue;
+      }
 
       //try evicting BATCH items from the class in order to reach free target
       auto evicted =
           BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
               tid_,pid,cid,batch);
-      numEvictedItems_.fetch_add(evicted, std::memory_order_relaxed);
+      evictions += evicted;
+      const size_t cid_id = (size_t)cid;
+      auto it = evictions_per_class_.find(cid_id);
+      if (it != evictions_per_class_.end()) {
+          it->second += evicted;
+      } else {
+          evictions_per_class_[cid_id] = 0;
+      }
   }
   runCount_.fetch_add(1, std::memory_order_relaxed);
+  numEvictedItems_.fetch_add(evictions, std::memory_order_relaxed);
+  totalClasses_.fetch_add(classes, std::memory_order_relaxed);
 }
 
 template <typename CacheT>
 BackgroundEvictorStats BackgroundEvictor<CacheT>::getStats() const noexcept {
   BackgroundEvictorStats stats;
   stats.numEvictedItems = numEvictedItems_.load(std::memory_order_relaxed);
-  stats.numTraversals = runCount_.load(std::memory_order_relaxed);
+  stats.runCount = runCount_.load(std::memory_order_relaxed);
   stats.numEvictedItemsFromSchedule = numEvictedItemsFromSchedule_.load(std::memory_order_relaxed);
+  stats.totalClasses = totalClasses_.load(std::memory_order_relaxed);
   return stats;
+}
+
+template <typename CacheT>
+std::map<uint32_t,uint64_t> BackgroundEvictor<CacheT>::getClassStats() const noexcept {
+  return evictions_per_class_;
 }
 
 } // namespace cachelib
