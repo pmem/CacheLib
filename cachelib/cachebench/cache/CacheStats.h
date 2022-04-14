@@ -25,16 +25,29 @@ DECLARE_bool(report_api_latency);
 namespace facebook {
 namespace cachelib {
 namespace cachebench {
+
+struct BackgroundEvictionStats {
+  // the number of items this worker evicted by looking at pools/classes stats
+  uint64_t nEvictedItems{0};
+
+  // the number of items this worker evicted for pools/classes requested by schedule call
+  uint64_t nEvictedItemsFromSchedule{0};
+
+  // number of times we went executed the thread //TODO: is this def correct?
+  uint64_t nTraversals{0};
+
+  // size of evicted items
+  uint64_t evictionSize;
+};
+
 struct Stats {
+  BackgroundEvictionStats backgndEvicStats;
+
   uint64_t numEvictions{0};
   uint64_t numItems{0};
 
   uint64_t allocAttempts{0};
   uint64_t allocFailures{0};
-
-  uint64_t numBackgroundEvictions{0};
-  uint64_t numBackgroundEvictionsFromSchedule{0};
-  uint64_t numBackgroundEvictorRuns{0};
 
   uint64_t numCacheGets{0};
   uint64_t numCacheGetMiss{0};
@@ -118,12 +131,15 @@ struct Stats {
                           invertPctFn(allocFailures, allocAttempts))
         << std::endl;
     out << folly::sformat("RAM Evictions : {:,}", numEvictions) << std::endl;
-    
 
-    out << folly::sformat("Background Tier 0 Evictions : {:,}", numBackgroundEvictions) << std::endl;
-    out << folly::sformat("Background Tier 0 Evictions from schedule() : {:,}", numBackgroundEvictionsFromSchedule) << std::endl;
-    
-    out << folly::sformat("Background Tier 0 Eviction Runs : {:,}", numBackgroundEvictorRuns) << std::endl;
+    out << folly::sformat("Tier 0 Background Evicted items : {:,}",
+                            backgndEvicStats.nEvictedItems) << std::endl;
+    out << folly::sformat("Tier 0 Background Evicted items from schedule : {:,}",
+                            backgndEvicStats.nEvictedItemsFromSchedule) << std::endl;
+    out << folly::sformat("Tier 0 Background Traversals : {:,}",
+                            backgndEvicStats.nTraversals) << std::endl;
+    out << folly::sformat("Tier 0 Background Evicted Size : {:,}",
+                            backgndEvicStats.evictionSize) << std::endl;
 
     if (numCacheGets > 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;

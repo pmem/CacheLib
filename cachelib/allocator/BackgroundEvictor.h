@@ -22,6 +22,7 @@
 #include "cachelib/allocator/CacheStats.h"
 #include "cachelib/common/PeriodicWorker.h"
 #include "cachelib/allocator/BackgroundEvictorStrategy.h"
+#include "cachelib/common/AtomicCounter.h"
 
 
 namespace facebook {
@@ -36,6 +37,20 @@ struct BackgroundEvictorAPIWrapper {
           unsigned int tid, unsigned int pid, unsigned int cid, size_t batch) {
     return cache.traverseAndEvictItems(tid,pid,cid,batch);
   }
+};
+
+struct BackgroundEvictorStats {
+  // items evicted
+  AtomicCounter numEvictedItems{0};
+
+  // items evicted from schedule
+  AtomicCounter numEvictedItemsFromSchedule;
+
+  // traversals
+  AtomicCounter numTraversals{0};
+
+  // item eviction size
+  AtomicCounter evictionSize{0};
 };
 
 // Periodic worker that evicts items from tiers in batches
@@ -58,7 +73,8 @@ class BackgroundEvictor : public PeriodicWorker {
   void schedule(size_t pid, size_t cid) {
       tasks_.enqueue(std::make_pair(pid,cid));
   }
-  BackgroundEvictorStats getStats() const noexcept;
+
+  BackgroundEvictionStats getStats() const noexcept;
 
  private:
   // cache allocator's interface for evicting
@@ -73,10 +89,8 @@ class BackgroundEvictor : public PeriodicWorker {
   // implements the actual logic of running the background evictor
   void work() override final;
   void checkAndRun(PoolId pid);
-  
-  std::atomic<uint64_t> numEvictedItems_{0};
-  std::atomic<uint64_t> numEvictedItemsFromSchedule_{0};
-  std::atomic<uint64_t> runCount_{0};
+
+  BackgroundEvictorStats stats;
 };
 } // namespace cachelib
 } // namespace facebook

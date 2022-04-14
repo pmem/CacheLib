@@ -1044,8 +1044,8 @@ class CacheAllocator : public CacheBase {
   }
   
   // returns the background evictor
-  BackgroundEvictorStats getBackgroundEvictorStats() const {
-    auto stats = backgroundEvictor_ ? backgroundEvictor_->getStats() : BackgroundEvictorStats{};
+  BackgroundEvictionStats getBackgroundEvictorStats() const {
+    auto stats = backgroundEvictor_ ? backgroundEvictor_->getStats() : BackgroundEvictionStats{};
     return stats;
   }
 

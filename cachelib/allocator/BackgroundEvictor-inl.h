@@ -39,10 +39,11 @@ void BackgroundEvictor<CacheT>::work() {
       while (auto entry = tasks_.try_dequeue()) {
         auto [pid, cid] = entry.value();
         auto batch = strategy_->calculateBatchSize(cache_, tid_, pid, cid);
+        stats.evictionSize.add(batch);
         auto evicted = BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
                 tid_,pid,cid,batch);
-        numEvictedItemsFromSchedule_.fetch_add(1, std::memory_order_relaxed);
-        runCount_.fetch_add(1, std::memory_order_relaxed);
+        stats.numEvictedItemsFromSchedule.inc();
+        stats.numTraversals.inc();
       }
     } else {
       for (const auto pid : cache_.getRegularPoolIds()) {
@@ -67,22 +68,25 @@ void BackgroundEvictor<CacheT>::checkAndRun(PoolId pid) {
       if (!batch)
         continue;
 
+      stats.evictionSize.add(batch);
       //try evicting BATCH items from the class in order to reach free target
       auto evicted =
           BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
               tid_,pid,cid,batch);
-      numEvictedItems_.fetch_add(evicted, std::memory_order_relaxed);
+      stats.numEvictedItems.add(evicted);
   }
-  runCount_.fetch_add(1, std::memory_order_relaxed);
+  stats.numTraversals.inc();
 }
 
 template <typename CacheT>
-BackgroundEvictorStats BackgroundEvictor<CacheT>::getStats() const noexcept {
-  BackgroundEvictorStats stats;
-  stats.numEvictedItems = numEvictedItems_.load(std::memory_order_relaxed);
-  stats.numTraversals = runCount_.load(std::memory_order_relaxed);
-  stats.numEvictedItemsFromSchedule = numEvictedItemsFromSchedule_.load(std::memory_order_relaxed);
-  return stats;
+BackgroundEvictionStats BackgroundEvictor<CacheT>::getStats() const noexcept {
+  BackgroundEvictionStats evicStats;
+  evicStats.numEvictedItems = stats.numEvictedItems.get();
+  evicStats.numEvictedItemsFromSchedule = stats.numEvictedItemsFromSchedule.get();
+  evicStats.numTraversals = stats.numTraversals.get();
+  evicStats.evictionSize = stats.evictionSize.get();
+
+  return evicStats;
 }
 
 } // namespace cachelib
