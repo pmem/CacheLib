@@ -65,9 +65,9 @@ void BackgroundEvictor<CacheT>::checkAndRun(PoolId pid) {
   unsigned int evictions = 0;
   unsigned int classes = 0;
   for (auto& cid : mpStats.classIds) {
+      classes++;
       auto batch = strategy_->calculateBatchSize(cache_,tid_,pid,cid);
       if (!batch) {
-        classes++;
         continue;
       }
 
@@ -76,7 +76,7 @@ void BackgroundEvictor<CacheT>::checkAndRun(PoolId pid) {
           BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
               tid_,pid,cid,batch);
       evictions += evicted;
-      const size_t cid_id = (size_t)cid;
+      const size_t cid_id = (size_t)mpStats.acStats.at(cid).allocSize;
       auto it = evictions_per_class_.find(cid_id);
       if (it != evictions_per_class_.end()) {
           it->second += evicted;
