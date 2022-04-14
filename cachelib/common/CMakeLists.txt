@@ -30,7 +30,8 @@ add_library (cachelib_common
 )
 add_dependencies(cachelib_common thrift_generated_files)
 
-find_library(ITTAPI_LIB NAMES libittnotify.a)
+set(MY_LIB_ITT "libittnotify.a")
+find_library(ITTAPI_LIB NAMES "${MY_LIB_ITT}" NO_CACHE)
 
 target_link_libraries(cachelib_common PUBLIC
   Threads::Threads
@@ -41,8 +42,11 @@ target_link_libraries(cachelib_common PUBLIC
   Folly::folly_exception_tracer
   Folly::folly_exception_tracer_base
   Folly::folly_exception_counter
-  ${ITTAPI_LIB}
 )
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../opt/cachelib/lib/libittnotify.a")
+  target_link_libraries(cachelib_common PUBLIC ${ITTAPI_LIB})
+endif()
 
 install(TARGETS cachelib_common
         EXPORT cachelib-exports
