@@ -59,6 +59,11 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   allocatorConfig_.enablePoolRebalancing(
       config_.getRebalanceStrategy(),
       std::chrono::seconds(config_.poolRebalanceIntervalSec));
+ 
+  //for another day
+  //allocatorConfig_.enablePoolOptimizer(
+  //    config_.getPoolOptimizerStrategy(),
+  //    std::chrono::seconds(config_.poolOptimizerIntervalSec));
   
   allocatorConfig_.enableBackgroundEvictor(
       config_.getBackgroundEvictorStrategy(),
@@ -539,6 +544,12 @@ Stats Cache<Allocator>::getStats() const {
   ret.numCacheGets = cacheStats.numCacheGets;
   ret.numCacheGetMiss = cacheStats.numCacheGetMiss;
   ret.numRamDestructorCalls = cacheStats.numRamDestructorCalls;
+  
+  ret.numBackgroundEvictions = cacheStats.backgroundEvictorStats.numEvictedItems;
+  ret.numBackgroundEvictionsFromSchedule = cacheStats.backgroundEvictorStats.numEvictedItemsFromSchedule;
+  ret.numBackgroundEvictorRuns = cacheStats.backgroundEvictorStats.numTraversals;
+  ret.numClasses = cacheStats.backgroundEvictorStats.numClasses;
+
   ret.numNvmGets = cacheStats.numNvmGets;
   ret.numNvmGetMiss = cacheStats.numNvmGetMiss;
   ret.numNvmGetCoalesced = cacheStats.numNvmGetCoalesced;
@@ -580,6 +591,8 @@ Stats Cache<Allocator>::getStats() const {
   if (config_.printNvmCounters) {
     ret.nvmCounters = cache_->getNvmCacheStatsMap();
   }
+
+  ret.backgroundEvictionClasses = cache_->getBackgroundEvictorClassStats();
 
   // nvm stats from navy
   if (!isRamOnly() && !navyStats.empty()) {

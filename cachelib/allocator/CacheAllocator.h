@@ -1048,6 +1048,11 @@ class CacheAllocator : public CacheBase {
     auto stats = backgroundEvictor_ ? backgroundEvictor_->getStats() : BackgroundEvictionStats{};
     return stats;
   }
+  
+  std::map<uint32_t,uint64_t> getBackgroundEvictorClassStats() const {
+    auto stats = backgroundEvictor_ ? backgroundEvictor_->getClassStats() : std::map<uint32_t,uint64_t>();
+    return stats;
+  }
 
   // return the LruType of an item
   typename MMType::LruType getItemLruType(const Item& item) const;

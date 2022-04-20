@@ -63,18 +63,32 @@ void BackgroundEvictor<CacheT>::work() {
 template <typename CacheT>
 void BackgroundEvictor<CacheT>::checkAndRun(PoolId pid) {    
   const auto& mpStats = cache_.getPoolByTid(pid,tid_).getStats();
+  unsigned int evictions = 0;
+  unsigned int classes = 0;
   for (auto& cid : mpStats.classIds) {
+      classes++;
       auto batch = strategy_->calculateBatchSize(cache_,tid_,pid,cid);
-      if (!batch)
+      if (!batch) {
         continue;
+      }
 
       stats.evictionSize.add(batch);
       //try evicting BATCH items from the class in order to reach free target
       auto evicted =
           BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
               tid_,pid,cid,batch);
-      stats.numEvictedItems.add(evicted);
+
+      evictions += evicted;
+      const size_t cid_id = (size_t)mpStats.acStats.at(cid).allocSize;
+      auto it = evictions_per_class_.find(cid_id);
+      if (it != evictions_per_class_.end()) {
+          it->second += evicted;
+      } else {
+          evictions_per_class_[cid_id] = 0;
+      }
   }
+  stats.numEvictedItems.add(evictions);
+  stats.numClasses.add(classes);
   stats.numTraversals.inc();
 }
 
@@ -84,9 +98,15 @@ BackgroundEvictionStats BackgroundEvictor<CacheT>::getStats() const noexcept {
   evicStats.numEvictedItems = stats.numEvictedItems.get();
   evicStats.numEvictedItemsFromSchedule = stats.numEvictedItemsFromSchedule.get();
   evicStats.numTraversals = stats.numTraversals.get();
+  evicStats.numClasses = stats.numClasses.get();
   evicStats.evictionSize = stats.evictionSize.get();
 
   return evicStats;
+}
+
+template <typename CacheT>
+std::map<uint32_t,uint64_t> BackgroundEvictor<CacheT>::getClassStats() const noexcept {
+  return evictions_per_class_;
 }
 
 } // namespace cachelib

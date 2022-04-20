@@ -49,6 +49,9 @@ struct BackgroundEvictorStats {
   // traversals
   AtomicCounter numTraversals{0};
 
+  // total number of classes
+  AtomicCounter numClasses{0};
+
   // item eviction size
   AtomicCounter evictionSize{0};
 };
@@ -76,6 +79,8 @@ class BackgroundEvictor : public PeriodicWorker {
 
   BackgroundEvictionStats getStats() const noexcept;
 
+  std::map<uint32_t,uint64_t> getClassStats() const noexcept;
+
  private:
   // cache allocator's interface for evicting
   
@@ -91,6 +96,8 @@ class BackgroundEvictor : public PeriodicWorker {
   void checkAndRun(PoolId pid);
 
   BackgroundEvictorStats stats;
+
+  std::map<uint32_t,uint64_t> evictions_per_class_;
 };
 } // namespace cachelib
 } // namespace facebook
