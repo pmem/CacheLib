@@ -527,14 +527,29 @@ Stats Cache<Allocator>::getStats() const {
   const auto navyStats = cache_->getNvmCacheStatsMap();
 
   Stats ret;
+  ret.backgndEvicStats.nEvictedItems =
+            cacheStats.evictionStats.numEvictedItems;
+  ret.backgndEvicStats.nEvictedItemsFromSchedule =
+            cacheStats.evictionStats.numEvictedItemsFromSchedule;
+  ret.backgndEvicStats.nTraversals =
+            cacheStats.evictionStats.numTraversals;
+  ret.backgndEvicStats.evictionSize =
+            cacheStats.evictionStats.evictionSize;
+
   ret.numEvictions = aggregate.numEvictions();
   ret.numItems = aggregate.numItems();
   ret.allocAttempts = cacheStats.allocAttempts;
   ret.allocFailures = cacheStats.allocFailures;
+
+  ret.numCacheGets = cacheStats.numCacheGets;
+  ret.numCacheGetMiss = cacheStats.numCacheGetMiss;
+  ret.numRamDestructorCalls = cacheStats.numRamDestructorCalls;
   
   ret.numBackgroundEvictions = cacheStats.backgroundEvictorStats.numEvictedItems;
   ret.numBackgroundEvictionsFromSchedule = cacheStats.backgroundEvictorStats.numEvictedItemsFromSchedule;
-  ret.numBackgroundEvictorRuns = cacheStats.backgroundEvictorStats.runCount;
+  ret.numBackgroundEvictorRuns = cacheStats.backgroundEvictorStats.numTraversals;
+  ret.numClasses = cacheStats.backgroundEvictorStats.numClasses;
+
   ret.numNvmGets = cacheStats.numNvmGets;
   ret.numNvmGetMiss = cacheStats.numNvmGetMiss;
   ret.numNvmGetCoalesced = cacheStats.numNvmGetCoalesced;

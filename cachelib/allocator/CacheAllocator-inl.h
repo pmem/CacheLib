@@ -3676,7 +3676,7 @@ GlobalCacheStats CacheAllocator<CacheTrait>::getGlobalCacheStats() const {
   ret.nvmCacheEnabled = nvmCache_ ? nvmCache_->isEnabled() : false;
   ret.nvmUpTime = currTime - getNVMCacheCreationTime();
   ret.reaperStats = getReaperStats();
-  ret.backgroundEvictorStats = getBackgroundEvictorStats();
+  ret.evictionStats = getBackgroundEvictorStats();
   ret.numActiveHandles = getNumActiveHandles();
 
   return ret;
