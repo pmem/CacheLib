@@ -28,21 +28,19 @@ namespace facebook {
 namespace cachelib {
 
 FileShmSegment::FileShmSegment(ShmAttachT,
-                                 const std::string& name,
-                                 ShmSegmentOpts opts)
-    : ShmBase(std::move(opts), name),
-      fd_(getExisting(getPath(), opts_)) {
+                               const std::string& name,
+                               ShmSegmentOpts opts)
+    : ShmBase(std::move(opts), name), fd_(getExisting(getPath(), opts_)) {
   XDCHECK_NE(fd_, kInvalidFD);
   markActive();
   createReferenceMapping();
 }
 
 FileShmSegment::FileShmSegment(ShmNewT,
-                                 const std::string& name,
-                                 size_t size,
-                                 ShmSegmentOpts opts)
-    : ShmBase(std::move(opts), name),
-      fd_(createNewSegment(getPath())) {
+                               const std::string& name,
+                               size_t size,
+                               ShmSegmentOpts opts)
+    : ShmBase(std::move(opts), name), fd_(createNewSegment(getPath())) {
   markActive();
   resize(size);
   XDCHECK(isActive());
@@ -79,7 +77,7 @@ int FileShmSegment::createNewSegment(const std::string& name) {
 }
 
 int FileShmSegment::getExisting(const std::string& name,
-                                 const ShmSegmentOpts& opts) {
+                                const ShmSegmentOpts& opts) {
   int flags = opts.readOnly ? O_RDONLY : O_RDWR;
   detail::open_func_t open_func = std::bind(open, name.c_str(), flags);
   return detail::openImpl(open_func, flags);

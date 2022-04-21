@@ -76,14 +76,16 @@ PosixShmSegment::~PosixShmSegment() {
 
 int PosixShmSegment::createNewSegment(const std::string& name) {
   constexpr static int createFlags = O_RDWR | O_CREAT | O_EXCL;
-  detail::open_func_t open_func = std::bind(shm_open, name.c_str(), createFlags, kRWMode);
+  detail::open_func_t open_func =
+      std::bind(shm_open, name.c_str(), createFlags, kRWMode);
   return detail::openImpl(open_func, createFlags);
 }
 
 int PosixShmSegment::getExisting(const std::string& name,
                                  const ShmSegmentOpts& opts) {
   int flags = opts.readOnly ? O_RDONLY : O_RDWR;
-  detail::open_func_t open_func = std::bind(shm_open, name.c_str(), flags, kRWMode);
+  detail::open_func_t open_func =
+      std::bind(shm_open, name.c_str(), flags, kRWMode);
   return detail::openImpl(open_func, flags);
 }
 

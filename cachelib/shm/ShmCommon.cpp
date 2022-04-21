@@ -21,8 +21,8 @@
 #include <folly/Range.h>
 #include <folly/String.h>
 #include <folly/logging/xlog.h>
-#include <sys/types.h>
 #include <sys/mman.h>
+#include <sys/types.h>
 
 namespace facebook {
 namespace cachelib {
@@ -245,7 +245,8 @@ void fstatImpl(int fd, stat_t* buf) {
   }
 }
 
-void* mmapImpl(void* addr, size_t length, int prot, int flags, int fd, off_t offset) {
+void* mmapImpl(
+    void* addr, size_t length, int prot, int flags, int fd, off_t offset) {
   void* ret = mmap(addr, length, prot, flags, fd, offset);
   if (ret != MAP_FAILED) {
     return ret;
