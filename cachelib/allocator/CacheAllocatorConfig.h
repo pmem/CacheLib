@@ -864,7 +864,6 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::usePosixForShm() {
   }
   usePosixShm = true;
   return setUsePosixForTiers();
-  ;
 }
 
 template <typename T>
@@ -886,8 +885,8 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setUsePosixForTiers() {
 template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::configureMemoryTiers(
     const MemoryTierConfigs& config) {
-  if (config.size() > 1) {
-    std::system_error("Only single memory tier is currently supported.");
+  if (config.size() != 1) {
+    throw std::system_error("Only single memory tier is currently supported.");
   }
   memoryTierConfigs = config;
   size_t sumRatios = 0;
