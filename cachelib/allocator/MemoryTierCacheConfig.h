@@ -64,9 +64,8 @@ class MemoryTierCacheConfig {
   size_t ratio{0};
 
  private:
-  // TODO: introduce a container for options when adding support for file-mapped
+  // TODO: introduce a container for tier settings when adding support for file-mapped
   // memory
-  bool usePosixShm;
   MemoryTierCacheConfig() = default;
 };
 } // namespace cachelib

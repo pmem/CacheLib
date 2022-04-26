@@ -590,8 +590,6 @@ class CacheAllocatorConfig {
   MemoryTierConfigs memoryTierConfigs{
       {MemoryTierCacheConfig::fromShm().setRatio(1)}};
 
-  CacheAllocatorConfig& setUsePosixForTiers();
-
   void mergeWithPrefix(
       std::map<std::string, std::string>& configMap,
       const std::map<std::string, std::string>& configMapToMerge,
@@ -863,7 +861,7 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::usePosixForShm() {
         "Posix shm can be set only when cache persistence is enabled");
   }
   usePosixShm = true;
-  return setUsePosixForTiers();
+  return *this;
 }
 
 template <typename T>
@@ -871,14 +869,6 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enableItemReaperInBackground(
     std::chrono::milliseconds interval, util::Throttler::Config config) {
   reaperInterval = interval;
   reaperConfig = config;
-  return *this;
-}
-
-template <typename T>
-CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setUsePosixForTiers() {
-  for (auto& tierConfig : memoryTierConfigs) {
-    tierConfig.usePosixForShm();
-  }
   return *this;
 }
 
@@ -949,8 +939,7 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::configureMemoryTiers(
   if (sumSizes && !getCacheSize()) {
     setCacheSizeImpl(sumSizes);
   }
-
-  return setUsePosixForTiers();
+  return *this;
 }
 
 template <typename T>
