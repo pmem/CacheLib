@@ -30,8 +30,6 @@ class MemoryTierCacheConfig {
     return MemoryTierCacheConfig();
   }
 
-  void usePosixForShm() { usePosixShm = true; }
-
   // Specifies size of this memory tier. Sizes of tiers  must be specified by
   // either setting size explicitly or using ratio, mixing of the two is not
   // supported.
@@ -60,12 +58,12 @@ class MemoryTierCacheConfig {
 
   // Ratio is a number of parts of the total cache size to be allocated for this
   // tier. E.g. if X is a total cache size, Yi are ratios specified for memory
-  // tiers, then size of the i-th tier Xi = (X / (Y1 + Y2)) * Yi and X = sum(Xi)
+  // tiers, then size of the i-th tier Xi = (X / sum(Yi)) * Yi
   size_t ratio{0};
 
  private:
-  // TODO: introduce a container for tier settings when adding support for file-mapped
-  // memory
+  // TODO: introduce a container for tier settings when adding support for
+  // file-mapped memory
   MemoryTierCacheConfig() = default;
 };
 } // namespace cachelib
