@@ -44,7 +44,7 @@ target_link_libraries(cachelib_common PUBLIC
   Folly::folly_exception_counter
 )
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../opt/cachelib/lib/libittnotify.a")
+if(ITTAPI_LIB)
   target_link_libraries(cachelib_common PUBLIC ${ITTAPI_LIB})
 endif()
 
