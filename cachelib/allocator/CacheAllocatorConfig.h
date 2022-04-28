@@ -213,9 +213,7 @@ class CacheAllocatorConfig {
 
   // Sets total cache size and configures cache memory tiers. This method
   // can be used when configuring cache memory tears whose sizes are specified
-  // via ratios of total cache size. This method throws an exception if it
-  // detects that the total cache size has been set before this method was
-  // called.
+  // via ratios of total cache size.
   CacheAllocatorConfig& configureMemoryTiers(size_t totalCacheSize,
                                              const MemoryTierConfigs& configs);
 
@@ -889,15 +887,9 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enableItemReaperInBackground(
 template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::configureMemoryTiers(
     size_t totalCacheSize, const MemoryTierConfigs& config) {
-  if (totalCacheSize && !getCacheSize()) {
-    setCacheSizeImpl(totalCacheSize);
-  } else {
-    if (getCacheSize()) {
-      throw std::invalid_argument("Total cache size has already been set.");
-    }
-    if (!totalCacheSize) {
-      throw std::invalid_argument("Total cache size must be greater than 0.");
-    }
+  setCacheSizeImpl(totalCacheSize);
+  if (!getCacheSize()) {
+    throw std::invalid_argument("Total cache size must be greater than 0.");
   }
 
   return configureMemoryTiers(config);
@@ -907,7 +899,8 @@ template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::configureMemoryTiers(
     const MemoryTierConfigs& config) {
   if (config.size() != 1) {
-    throw std::system_error("Only single memory tier is currently supported.");
+    throw std::invalid_argument(
+        "Only single memory tier is currently supported.");
   }
   memoryTierConfigs = config;
   size_t sumRatios = 0;
@@ -916,28 +909,28 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::configureMemoryTiers(
   for (const auto& tierConfig : memoryTierConfigs) {
     auto tierSize = tierConfig.getSize();
     auto tierRatio = tierConfig.getRatio();
-    if ((!sumSizes and !tierRatio) || (sumSizes and tierRatio)) {
+    if ((sumRatios && tierSize) || (sumSizes && tierRatio)) {
       throw std::invalid_argument(
           "For each memory tier either size or ratio must be set.");
     }
     sumRatios += tierRatio;
-    sumSizes += sumSizes;
+    sumSizes += tierSize;
   }
 
-  if (sumSizes && !getCacheSize()) {
-    setCacheSizeImpl(sumSizes);
-  }
-
-  if (sumRatios && !getCacheSize()) {
-    throw std::invalid_argument(
-        "Total cache size must be specified when size ratios are"
-        "used to specify memory tier sizes.");
+  if (!getCacheSize()) {
+    if (sumRatios) {
+      throw std::invalid_argument(
+          "Total cache size must be specified when size ratios are "
+          "used to specify memory tier sizes.");
+    } else if (sumSizes) {
+      setCacheSizeImpl(sumSizes);
+    }
   }
 
   if (sumRatios) {
     if (!getCacheSize()) {
       throw std::invalid_argument(
-          "Total cache size must be specified when size ratios are"
+          "Total cache size must be specified when size ratios are "
           "used to specify memory tier sizes.");
     } else {
       if (getCacheSize() < sumRatios) {
@@ -961,13 +954,13 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::configureMemoryTiers(
   } else if (sumSizes) {
     if (sumSizes != getCacheSize()) {
       throw std::invalid_argument(
-          "Sum of tier sizes doesn't match total cache size."
-          "Setting of cache total size is not required when per-tier"
+          "Sum of tier sizes doesn't match total cache size. "
+          "Setting of cache total size is not required when per-tier "
           "sizes are specified - it is calculated as sum of tier sizes.");
     }
   } else {
     throw std::invalid_argument(
-        "Either sum of all memory tiers sizes or sum of all ratios"
+        "Either sum of all memory tiers sizes or sum of all ratios "
         "must be greater than 0.");
   }
 
