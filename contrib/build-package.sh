@@ -238,6 +238,12 @@ case "$1" in
     REPODIR=cachelib/external/$NAME
     SRCDIR=$REPODIR
     external_git_clone=yes
+    if [ $NAME = "ittapi" ] ; then
+      echo "ITTAPI debugging is active."
+      cmake_custom_params="$cmake_custom_params -DITTAPI_DEBUG=ON"
+    else
+      cmake_custom_params="$cmake_custom_params -DITTAPI_DEBUG=OFF"
+    fi
     ;;
 
   cachelib)
@@ -375,6 +381,9 @@ fi
 
 if test "$install" ; then
   if [ $NAME = "ittapi" ] ; then
+    # Creates a folder and then copies the ittnotify.h over to the folder.
+    mkdir -p $PREFIX/include/$NAME && cp ../$REPODIR/include/ittnotify.h "$_" || die "Failed to copy ittnotify.h to cachelib/include."
+    # copies both libraries over to their respective lib folders.
     cp ../$REPODIR/build_linux/32/bin/libittnotify.a $PREFIX/lib
     cp ../$REPODIR/build_linux/64/bin/libittnotify.a $PREFIX/lib64
   else
