@@ -64,9 +64,11 @@ class Cache {
   //                      cache.
   // @param cacheDir      optional directory for the cache to enable
   //                      persistence across restarts.
+  // @param touchValue    read entire value on find
   explicit Cache(const CacheConfig& config,
                  ChainedItemMovingSync movingSync = {},
-                 std::string cacheDir = "");
+                 std::string cacheDir = "",
+                 bool touchValue = false);
 
   ~Cache();
 
@@ -168,6 +170,9 @@ class Cache {
     return getSize(item.get());
   }
 
+  // read entire value on find.
+  void touchValue(const ItemHandle& it) const;
+
   // returns the size of the item, taking into account ItemRecords could be
   // enabled.
   uint32_t getSize(const Item* item) const noexcept;
@@ -229,6 +234,9 @@ class Cache {
 
   // returns true if the consistency checking is enabled.
   bool consistencyCheckEnabled() const { return valueTracker_ != nullptr; }
+
+  // returns true if touching value is enabled.
+  bool touchValueEnabled() const { return touchValue_; }
 
   // return true if the key was previously detected to be inconsistent. This
   // is useful only when consistency checking is enabled by calling
@@ -351,6 +359,9 @@ class Cache {
 
   // tracker for consistency monitoring.
   std::unique_ptr<ValueTracker> valueTracker_;
+
+  // read entire value on find.
+  bool touchValue_{false};
 
   // reading of the nand bytes written for the benchmark if enabled.
   const uint64_t nandBytesBegin_{0};

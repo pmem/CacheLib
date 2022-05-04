@@ -50,8 +50,10 @@ uint64_t Cache<Allocator>::fetchNandWrites() const {
 template <typename Allocator>
 Cache<Allocator>::Cache(const CacheConfig& config,
                         ChainedItemMovingSync movingSync,
-                        std::string cacheDir)
+                        std::string cacheDir,
+                        bool touchValue)
     : config_(config),
+      touchValue_(touchValue),
       nandBytesBegin_{fetchNandWrites()},
       itemRecords_(config_.enableItemDestructorCheck) {
   constexpr size_t MB = 1024ULL * 1024ULL;
@@ -397,6 +399,18 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::insertOrReplace(
 }
 
 template <typename Allocator>
+void Cache<Allocator>::touchValue(const ItemHandle& it) const {
+  XDCHECK(touchValueEnabled());
+
+  auto ptr = reinterpret_cast<const uint8_t*>(getMemory(it));
+
+  /* The accumulate call is intended to access all bytes of the value
+   * and nothing more. */
+  auto sum = std::accumulate(ptr, ptr + getSize(it), 0ULL);
+  folly::doNotOptimizeAway(sum);
+}
+
+template <typename Allocator>
 typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
                                                              AccessMode mode) {
   auto findFn = [&]() {
@@ -407,12 +421,19 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
     // find from cache and wait for the result to be ready.
     auto it = cache_->findImpl(key, mode);
     it.wait();
+
+    if (touchValueEnabled()) {
+      touchValue(it);
+    }
+
     return it;
   };
 
   if (!consistencyCheckEnabled()) {
     return findFn();
   }
+
+  XDCHECK(!touchValueEnabled());
 
   auto opId = valueTracker_->beginGet(key);
   auto it = findFn();
