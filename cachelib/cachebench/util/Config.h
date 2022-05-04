@@ -196,6 +196,10 @@ struct StressorConfig : public JSONConfig {
   // Mutually exclusive with checkConsistency
   bool validateValue{false};
 
+  // If enabled, each value will be read on find. This is useful for measuring
+  // performance of value access.
+  bool touchValue{false};
+
   uint64_t numOps{0};     // operation per thread
   uint64_t numThreads{0}; // number of threads that will run
   uint64_t numKeys{0};    // number of keys that will be used

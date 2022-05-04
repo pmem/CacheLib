@@ -96,8 +96,8 @@ class CacheStressor : public Stressor {
       cacheConfig.ticker = ticker_;
     }
 
-    cache_ = std::make_unique<CacheT>(cacheConfig, movingSync,
-                                      cacheConfig.cacheDir, config_.touchValue);
+    cache_ = std::make_unique<CacheT>(cacheConfig, movingSync, "",
+                                      config_.touchValue);
     if (config_.opPoolDistribution.size() > cache_->numPools()) {
       throw std::invalid_argument(folly::sformat(
           "more pools specified in the test than in the cache. "
@@ -113,9 +113,6 @@ class CacheStressor : public Stressor {
 
     if (config_.checkConsistency) {
       cache_->enableConsistencyCheck(wg_->getAllKeys());
-    }
-    if (config_.validateValue) {
-      cache_->enableValueValidating(hardcodedString_);
     }
     if (config_.opRatePerSec > 0) {
       rateLimiter_ = std::make_unique<folly::BasicTokenBucket<>>(
