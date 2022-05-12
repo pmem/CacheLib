@@ -21,16 +21,51 @@ namespace cachelib {
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
 MM2Q::Container<T, HookPtr>::Container(const serialization::MM2QObject& object,
                                        PtrCompressor compressor)
-     : tailTrackingEnabled_(*object.tailTrackingEnabled_ref()),
-      config_(*object.config_ref()) {
+          : compressor_(std::move(compressor)),
+            lruHot_(compressor_),
+            lruWarm_(compressor_),
+            lruWarmTail_(compressor_),
+            lruCold_(compressor_),
+            lruColdTail_(compressor_),
+            tailTrackingEnabled_(*object.tailTrackingEnabled_ref()),
+            config_(*object.config_ref()) {
   
-  //lru_ = std::vector<LruList>();
   lruRefreshTime_ = config_.lruRefreshTime;
   nextReconfigureTime_ = config_.mmReconfigureIntervalSecs.count() == 0
                              ? std::numeric_limits<Time>::max()
                              : static_cast<Time>(util::getCurrentTimeSec()) +
                                    config_.mmReconfigureIntervalSecs.count();
+    //lruHot_(std::move(compressor));
+    //lruWarm_(std::move(compressor));
+    //lruWarmTail_(std::move(compressor));
+    //lruCold_(std::move(compressor));
+    //lruColdTail_(std::move(compressor));
 
+}
+template <typename T, MM2Q::Hook<T> T::*HookPtr>
+MM2Q::Container<T, HookPtr>::Container(Config c, PtrCompressor compressor)
+
+          : compressor_(std::move(compressor)),
+            lruHot_(compressor_),
+            lruWarm_(compressor_),
+            lruWarmTail_(compressor_),
+            lruCold_(compressor_),
+            lruColdTail_(compressor_),
+            tailTrackingEnabled_(c.tailSize > 0),
+            config_(std::move(c)) {
+     
+      //lruHot_(std::move(compressor));
+      //lruWarm_(std::move(compressor));
+      //lruWarmTail_(std::move(compressor));
+      //lruCold_(std::move(compressor));
+      //lruColdTail_(std::move(compressor));
+
+      lruRefreshTime_ = config_.lruRefreshTime;
+      nextReconfigureTime_ =
+          config_.mmReconfigureIntervalSecs.count() == 0
+              ? std::numeric_limits<Time>::max()
+              : static_cast<Time>(util::getCurrentTimeSec()) +
+                    config_.mmReconfigureIntervalSecs.count();
 }
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
@@ -64,146 +99,43 @@ bool MM2Q::Container<T, HookPtr>::recordAccess(T& node,
     // case (3) requires warm and warm tail locks
     // case (2) requires cold/cold-tail and warm lock
     
-    //auto func = [&]() {
-    //  reconfigureLocked(curr);
-    //  if (!node.isInMMContainer()) {
-    //    return false;
-    //  }
-    //  if (isHot(node)) {
-    //    lru_[LruType::Hot).moveToHead(node);
-    //    ++numHotAccesses_;
-    //  } else if (isCold(node)) {
-    //    if (inTail(node)) {
-    //      unmarkTail(node);
-    //      lru_[LruType::ColdTail).remove(node);
-    //      ++numColdTailAccesses_;
-    //    } else {
-    //      lru_[LruType::Cold).remove(node);
-    //    }
-    //    lru_[LruType::Warm).linkAtHead(node);
-    //    unmarkCold(node);
-    //    ++numColdAccesses_;
-    //    // only rebalance if config says so. recordAccess is called mostly on
-    //    // latency sensitive cache get operations.
-    //    if (config_.rebalanceOnRecordAccess) {
-    //      rebalance();
-    //    }
-    //  } else {
-    //    if (inTail(node)) {
-    //      unmarkTail(node);
-    //      lru_[LruType::WarmTail).remove(node);
-    //      lru_[LruType::Warm).linkAtHead(node);
-    //      ++numWarmTailAccesses_;
-    //    } else {
-    //      lru_[LruType::Warm).moveToHead(node);
-    //    }
-    //    ++numWarmAccesses_;
-    //  }
-    //  setUpdateTime(node, curr);
-    //  return true;
-    //};
-
-    //auto hotFunc = [&]() {
-    //    lru_[LruType::Hot].moveToHead(node);
-    //    ++numHotAccesses_;
-    //    setUpdateTime(node, curr);
-    //}
-    //auto coldFunc = [&]() {
-    //    lru_[LruType::Cold].remove(node);
-    //    lru_[LruType::Warm].linkAtHead(node);
-    //    
-    //    unmarkCold(node);
-    //    ++numColdAccesses_;
-    //    setUpdateTime(node, curr);
-    //}
-    
-    //auto coldTailFunc = [&]() {
-    //    
-    //    unmarkTail(node);
-    //    ++numColdTailAccesses_;
-    //    lru_[LruType::ColdTail].remove(node);
-    //    lru_[LruType::Warm].linkAtHead(node);
-    //    
-    //    unmarkCold(node);
-    //    ++numColdAccesses_;
-    //    setUpdateTime(node, curr);
-    //}
-    
-    //auto warmTailFunc = [&]() {
-    //    
-    //    unmarkTail(node);
-    //    ++numWarmTailAccesses_;
-    //    lru_[LruType::WarmTail].remove(node);
-    //    lru_[LruType::Warm].linkAtHead(node);
-    //    
-    //    ++numWarmAccesses_;
-    //    setUpdateTime(node, curr);
-    //}
-    //
-    //auto warmFunc = [&]() {
-    //    lru_[LruType::Warm].moveToHead(node);
-    //    ++numWarmAccesses_;
-    //    setUpdateTime(node, curr);
-    //}
-
-    // if the tryLockUpdate optimization is on, and we were able to grab the
-    // lock, execute the critical section and return true, else return false
-    //
-    // if the tryLockUpdate optimization is off, we always execute the critical
-    // section and return true
-    //if (config_.tryLockUpdate) {
-    //  if (auto lck = LockHolder{*lruMutex_, std::try_to_lock}) {
-    //    return func();
-    //  }
-    //  return false;
-    //}
-
-    //auto hotlck = std::unique_lock<Mutex>(lruMutex_[LruType::Hot], std::defer_lock);
-    //auto warmlck = LockHolder{*lruMutex_[LruType::Warm], std::defer_lock};
-    //auto warmtaillck = LockHolder{*lruMutex_[LruType::WarmTail], std::defer_lock};
-    //auto coldlck = LockHolder{*lruMutex_[LruType::Cold], std::defer_lock};
-    //auto coldtaillck = LockHolder{*lruMutex_[LruType::ColdTail], std::defer_lock};
     if (isHot(node)) {
-        //std::lock(lruMutex_[LruType::Hot]);
-        //std::scoped_lock lock(hotlck);
-        std::scoped_lock lock(lruMutex_[LruType::Hot]);
-        lru_[LruType::Hot].moveToHead(node);
+        std::scoped_lock lock(mutexHot_);
+        lruHot_.moveToHead(node);
         ++numHotAccesses_;
         setUpdateTime(node, curr);
     } else if (isCold(node) && inTail(node)) {
-        std::scoped_lock lock(lruMutex_[LruType::ColdTail],lruMutex_[LruType::Warm]);
+        std::scoped_lock lock(mutexColdTail_,mutexWarm_);
         unmarkTail(node);
         ++numColdTailAccesses_;
-        lru_[LruType::ColdTail].remove(node);
-        lru_[LruType::Warm].linkAtHead(node);
+        lruColdTail_.remove(node);
+        lruWarm_.linkAtHead(node);
         unmarkCold(node);
         ++numColdAccesses_;
         setUpdateTime(node, curr);
     } else if (isCold(node)) {
-        std::scoped_lock lock(lruMutex_[LruType::Cold],lruMutex_[LruType::Warm]);
-        lru_[LruType::Cold].remove(node);
-        lru_[LruType::Warm].linkAtHead(node);
+        std::scoped_lock lock(mutexCold_,mutexWarm_);
+        lruCold_.remove(node);
+        lruWarm_.linkAtHead(node);
         unmarkCold(node);
         ++numColdAccesses_;
         setUpdateTime(node, curr);
     } else if (isWarm(node) && inTail(node)) {
-        std::scoped_lock lock(lruMutex_[LruType::WarmTail],lruMutex_[LruType::Warm]);
+        std::scoped_lock lock(mutexWarmTail_,mutexWarm_);
         unmarkTail(node);
         ++numWarmTailAccesses_;
-        lru_[LruType::WarmTail].remove(node);
-        lru_[LruType::Warm].linkAtHead(node);
-        
+        lruWarmTail_.remove(node);
+        lruWarm_.linkAtHead(node);
         ++numWarmAccesses_;
         setUpdateTime(node, curr);
     } else if (isWarm(node)) {
-        std::scoped_lock lock(lruMutex_[LruType::Warm]);
-        lru_[LruType::Warm].moveToHead(node);
+        std::scoped_lock lock(mutexWarm_);
+        lruWarm_.moveToHead(node);
         ++numWarmAccesses_;
         setUpdateTime(node, curr);
     }
     return true;
 
-    //return lruMutex_->lock_combine(func);
   }
   return false;
 }
@@ -211,19 +143,8 @@ bool MM2Q::Container<T, HookPtr>::recordAccess(T& node,
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
 cachelib::EvictionAgeStat MM2Q::Container<T, HookPtr>::getEvictionAgeStat(
     uint64_t projectedLength) const noexcept {
-    //auto hotlck = LockHolder{*lruMutex_[LruType::Hot], std::defer_lock};
-    //auto warmlck = LockHolder{*lruMutex_[LruType::Warm], std::defer_lock};
-    //auto warmtaillck = LockHolder{*lruMutex_[LruType::WarmTail], std::defer_lock};
-    //auto coldlck = LockHolder{*lruMutex_[LruType::Cold], std::defer_lock};
-    //auto coldtaillck = LockHolder{*lruMutex_[LruType::ColdTail], std::defer_lock};
-    //std::lock(hotlck,warmlck,warmtaillck,coldlck,coldtaillck);
-    std::lock(lruMutex_[LruType::Hot],lruMutex_[LruType::Warm],
-              lruMutex_[LruType::WarmTail],lruMutex_[LruType::Cold],
-              lruMutex_[LruType::ColdTail]);
+    std::lock(mutexHot_,mutexWarm_,mutexWarmTail_,mutexCold_,mutexColdTail_);
     return getEvictionAgeStatLocked(projectedLength);
-  //return lruMutex_->lock_combine([this, projectedLength]() {
-  //  return getEvictionAgeStatLocked(projectedLength);
-  //});
 }
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
@@ -233,24 +154,24 @@ cachelib::EvictionAgeStat MM2Q::Container<T, HookPtr>::getEvictionAgeStatLocked(
   const auto curr = static_cast<Time>(util::getCurrentTimeSec());
 
   stat.hotQueueStat.oldestElementAge = getOldestAgeLocked(LruType::Hot, curr);
-  stat.hotQueueStat.size = lru_[LruType::Hot].size();
+  stat.hotQueueStat.size = lruHot_.size();
 
   // sum the tail and the main list for the ones that have tail.
   stat.warmQueueStat.oldestElementAge =
       getOldestAgeLocked(LruType::WarmTail, curr);
-  stat.warmQueueStat.size = lru_[LruType::Warm].size() +
-                            lru_[LruType::WarmTail].size();
+  stat.warmQueueStat.size = lruWarm_.size() +
+                            lruWarmTail_.size();
 
   stat.coldQueueStat.oldestElementAge =
       getOldestAgeLocked(LruType::ColdTail, curr);
-  stat.coldQueueStat.size = lru_[LruType::ColdTail].size() +
-                            lru_[LruType::Cold].size();
+  stat.coldQueueStat.size = lruColdTail_.size() +
+                            lruCold_.size();
 
-  auto it = lru_[LruType::WarmTail].rbegin();
-  for (size_t numSeen = 0; numSeen < projectedLength && it != lru_[LruType::WarmTail].rend();
+  auto it = lruWarmTail_.rbegin();
+  for (size_t numSeen = 0; numSeen < projectedLength && it != lruWarmTail_.rend();
        ++numSeen, ++it) {
   }
-  stat.projectedAge = (it != lru_[LruType::WarmTail].rend()) ? curr - getUpdateTime(*it)
+  stat.projectedAge = (it != lruWarmTail_.rend()) ? curr - getUpdateTime(*it)
                                           : stat.warmQueueStat.oldestElementAge;
   return stat;
 }
@@ -258,8 +179,27 @@ cachelib::EvictionAgeStat MM2Q::Container<T, HookPtr>::getEvictionAgeStatLocked(
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
 uint32_t MM2Q::Container<T, HookPtr>::getOldestAgeLocked(
     LruType lruType, Time currentTime) const noexcept {
-  auto it = lru_[lruType].rbegin();
-  return it != lru_[lruType].rend() ? currentTime - getUpdateTime(*it) : 0;
+    
+    switch (lruType) {
+    case LruType::Hot:
+      return lruHot_.rbegin() != lruHot_.rend() ? 
+          currentTime - getUpdateTime(*lruHot_.rbegin()) : 0;
+    case LruType::ColdTail:
+      return lruColdTail_.rbegin() != lruColdTail_.rend() ? 
+          currentTime - getUpdateTime(*lruColdTail_.rbegin()) : 0;
+    case LruType::Cold:
+      return lruCold_.rbegin() != lruCold_.rend() ? 
+          currentTime - getUpdateTime(*lruCold_.rbegin()) : 0;
+    case LruType::WarmTail:
+      return lruWarmTail_.rbegin() != lruWarmTail_.rend() ? 
+          currentTime - getUpdateTime(*lruWarmTail_.rbegin()) : 0;
+    case LruType::Warm:
+      return lruWarm_.rbegin() != lruWarm_.rend() ? 
+          currentTime - getUpdateTime(*lruWarm_.begin()) : 0;
+    case LruType::NumTypes:
+      XDCHECK(false);
+    }
+    return 0;
 }
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
@@ -273,53 +213,80 @@ typename MM2Q::LruType MM2Q::Container<T, HookPtr>::getLruType(
   }
   return inTail(node) ? LruType::WarmTail : LruType::Warm;
 }
+
+
+template <typename T, MM2Q::Hook<T> T::*HookPtr>
+std::mutex* MM2Q::Container<T, HookPtr>::getMutex(
+    const T& node) noexcept {
+  if (isHot(node)) {
+    return &mutexHot_;
+  }
+  if (isCold(node)) {
+    return inTail(node) ? &mutexColdTail_ : &mutexCold_;
+  }
+  return inTail(node) ? &mutexWarmTail_ : &mutexWarm_;
+}
+
 //make probablistic and acquire locks here
 //
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
 void MM2Q::Container<T, HookPtr>::rebalance() noexcept {
-  std::scoped_lock lock(lruMutex_[LruType::Hot],
-                        lruMutex_[LruType::Warm],
-                        lruMutex_[LruType::WarmTail],
-                        lruMutex_[LruType::Cold],
-                        lruMutex_[LruType::ColdTail]);
+    
+  std::scoped_lock lock(mutexHot_,mutexWarm_,mutexWarmTail_,mutexCold_,mutexColdTail_);
   // shrink Warm (and WarmTail) if their total size is larger than expected
-  size_t lru_size = lru_[LruType::Hot].size() +
-                    lru_[LruType::Warm].size() +
-                    lru_[LruType::WarmTail].size() +
-                    lru_[LruType::Cold].size() +
-                    lru_[LruType::ColdTail].size();
+  size_t lru_size = lruHot_.size() +
+                    lruWarm_.size() +
+                    lruWarmTail_.size() +
+                    lruCold_.size() +
+                    lruColdTail_.size();
 
   size_t expectedSize = config_.getWarmSizePercent() * lru_size / 100;
-  while (lru_[LruType::Warm].size() +
-             lru_[LruType::WarmTail].size() >
+  while (lruWarm_.size() +
+             lruWarmTail_.size() >
          expectedSize) {
-    auto popFrom = [&](LruType lruType) -> T* {
-      auto& lru = lru_[lruType];
-      T* node = lru.getTail();
+    //auto popFrom = [&](LruType lruType) -> T* {
+    //  
+    //  auto lru = *getLruFromType(lruType);
+    //  T* node = lru.getTail();
+    //  XDCHECK(node);
+    //  lru.remove(*node);
+    //  if (lruType == WarmTail || lruType == ColdTail) {
+    //    unmarkTail(*node);
+    //  }
+    //  return node;
+    //};
+    auto popFromWarmTail = [&](LruType lruType) -> T* {
+      
+      T* node = lruWarmTail_.getTail();
       XDCHECK(node);
-      lru.remove(*node);
-      if (lruType == WarmTail || lruType == ColdTail) {
-        unmarkTail(*node);
-      }
+      lruWarmTail_.remove(*node);
+      unmarkTail(*node);
+      return node;
+    };
+    auto popFromWarm = [&](LruType lruType) -> T* {
+      
+      T* node = lruWarm_.getTail();
+      XDCHECK(node);
+      lruWarm_.remove(*node);
       return node;
     };
     // remove from warm tail if it is not empty. if empty, remove from warm.
-    T* node = lru_[LruType::WarmTail].size() > 0
-                  ? popFrom(LruType::WarmTail)
-                  : popFrom(LruType::Warm);
+    T* node = lruWarmTail_.size() > 0
+                  ? popFromWarmTail(LruType::WarmTail)
+                  : popFromWarm(LruType::Warm);
     XDCHECK(isWarm(*node));
-    lru_[LruType::Cold].linkAtHead(*node);
+    lruCold_.linkAtHead(*node);
     markCold(*node);
   }
 
   // shrink Hot if its size is larger than expected
   expectedSize = config_.hotSizePercent * lru_size / 100;
-  while (lru_[LruType::Hot].size() > expectedSize) {
-    auto node = lru_[LruType::Hot].getTail();
+  while (lruHot_.size() > expectedSize) {
+    auto node = lruHot_.getTail();
     XDCHECK(node);
     XDCHECK(isHot(*node));
-    lru_[LruType::Hot].remove(*node);
-    lru_[LruType::Cold].linkAtHead(*node);
+    lruHot_.remove(*node);
+    lruCold_.linkAtHead(*node);
     unmarkHot(*node);
     markCold(*node);
   }
@@ -333,7 +300,7 @@ template <typename T, MM2Q::Hook<T> T::*HookPtr>
 bool MM2Q::Container<T, HookPtr>::add(T& node) noexcept {
   const auto currTime = static_cast<Time>(util::getCurrentTimeSec());
   {
-    std::scoped_lock lock(lruMutex_[LruType::Hot]); 
+    std::scoped_lock lock(mutexHot_);
     if (node.isInMMContainer()) {
       return false;
     }
@@ -341,7 +308,7 @@ bool MM2Q::Container<T, HookPtr>::add(T& node) noexcept {
     markHot(node);
     unmarkCold(node);
     unmarkTail(node);
-    lru_[LruType::Hot].linkAtHead(node);
+    lruHot_.linkAtHead(node);
     
 
     node.markInMMContainer();
@@ -376,17 +343,39 @@ MM2Q::Container<T, HookPtr>::getEvictionIterator() const noexcept {
   // as we don't expect this critical section to be the hotspot in user code.
   // This is however subject to change at some time in the future as and when
   // this assertion becomes false.
-  std::unique_lock<Mutex> l(lruMutex_[LruType::ColdTail]);
-  return Iterator{std::move(l), lru_[LruType::ColdTail].rbegin()};
+
+  if (config_.tailSize > 0) {
+    std::unique_lock<Mutex> l(mutexColdTail_);
+    return Iterator{std::move(l), lruColdTail_.rbegin()};
+  } else {
+    std::unique_lock<Mutex> l(mutexCold_);
+    return Iterator{std::move(l), lruCold_.rbegin()};
+  }
 }
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
 void MM2Q::Container<T, HookPtr>::removeLocked(T& node) noexcept {
   LruType type = getLruType(node);
-  lru_[type].remove(node);
-
+  switch (type) {
+  case LruType::Hot:
+    lruHot_.remove(node);
+    break;
+  case LruType::ColdTail:
+    lruColdTail_.remove(node); 
+    break;
+  case LruType::Cold:
+    lruCold_.remove(node); 
+    break;
+  case LruType::WarmTail:
+    lruWarmTail_.remove(node);
+    break; // warm is indicated by not marking hot or cold
+  case LruType::Warm:
+    lruWarm_.remove(node);
+    break;
+  case LruType::NumTypes:
+    XDCHECK(false);
+  }
   node.unmarkInMMContainer();
-  return;
 }
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
@@ -400,11 +389,7 @@ void MM2Q::Container<T, HookPtr>::setConfig(const Config& newConfig) {
         "Cannot turn off tailHitsTracking (cache drop needed)");
   }
 
-    std::scoped_lock lock(lruMutex_[LruType::Hot],
-                        lruMutex_[LruType::Warm],
-                        lruMutex_[LruType::WarmTail],
-                        lruMutex_[LruType::Cold],
-                        lruMutex_[LruType::ColdTail]);
+    std::scoped_lock lock(mutexHot_,mutexWarm_,mutexWarmTail_,mutexCold_,mutexColdTail_);
     config_ = newConfig;
     lruRefreshTime_.store(config_.lruRefreshTime, std::memory_order_relaxed);
     nextReconfigureTime_ = config_.mmReconfigureIntervalSecs.count() == 0
@@ -416,20 +401,15 @@ void MM2Q::Container<T, HookPtr>::setConfig(const Config& newConfig) {
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
 typename MM2Q::Config MM2Q::Container<T, HookPtr>::getConfig() const {
   //return lruMutex_->lock_combine([this]() { return config_; });
-    std::scoped_lock lock(lruMutex_[LruType::Hot],
-                        lruMutex_[LruType::Warm],
-                        lruMutex_[LruType::WarmTail],
-                        lruMutex_[LruType::Cold],
-                        lruMutex_[LruType::ColdTail]);
 
+    std::scoped_lock lock(mutexHot_,mutexWarm_,mutexWarmTail_,mutexCold_,mutexColdTail_);
     return config_;
 }
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
 bool MM2Q::Container<T, HookPtr>::remove(T& node) noexcept {
-  auto type = getLruType(node);
   {
-    std::scoped_lock lock(lruMutex_[type]); 
+    std::scoped_lock lock(*getMutex(node)); 
     if (!node.isInMMContainer()) {
       return false;
     }
@@ -462,13 +442,8 @@ template <typename T, MM2Q::Hook<T> T::*HookPtr>
 bool MM2Q::Container<T, HookPtr>::replace(T& oldNode, T& newNode) noexcept {
 
     
-  //return lruMutex_->lock_combine([this, &oldNode, &newNode]() 
-    
-  auto type1 = getLruType(oldNode);
-  auto type2 = getLruType(newNode);
   {
-    std::scoped_lock lock(lruMutex_[type1],
-                          lruMutex_[type2]);
+    std::scoped_lock lock(*getMutex(oldNode));
 
     if (!oldNode.isInMMContainer() || newNode.isInMMContainer()) {
       return false;
@@ -476,20 +451,26 @@ bool MM2Q::Container<T, HookPtr>::replace(T& oldNode, T& newNode) noexcept {
     const auto updateTime = getUpdateTime(oldNode);
 
     LruType type = getLruType(oldNode);
-    lru_[type].replace(oldNode, newNode);
     switch (type) {
     case LruType::Hot:
+      lruHot_.replace(oldNode,newNode);
       markHot(newNode);
       break;
     case LruType::ColdTail:
-      markTail(newNode); // pass through to also mark cold
+      lruColdTail_.replace(oldNode,newNode);
+      markTail(newNode); 
+      markCold(newNode);
+      break;
     case LruType::Cold:
+      lruCold_.replace(oldNode,newNode);
       markCold(newNode);
       break;
     case LruType::WarmTail:
+      lruWarmTail_.replace(oldNode,newNode);
       markTail(newNode);
       break; // warm is indicated by not marking hot or cold
     case LruType::Warm:
+      lruWarm_.replace(oldNode,newNode);
       break;
     case LruType::NumTypes:
       XDCHECK(false);
@@ -516,18 +497,32 @@ MM2Q::LruType MM2Q::Container<T, HookPtr>::getTailLru(LruType list) const {
 }
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
-void MM2Q::Container<T, HookPtr>::adjustTail(LruType list) {
-  LruType tail;
-  if (list == LruType::Warm)
-      tail = LruType::WarmTail;
-  else if (list == LruType::Cold) 
-      tail = LruType::ColdTail;
-  auto ptr = lru_[tail].getTail();
-  while (ptr && lru_[tail].size() + 1 <= config_.tailSize) {
-    markTail(*ptr);
-    lru_[list].remove(*ptr);
-    lru_[tail].linkAtHead(*ptr);
-    ptr = lru_[list].getTail();
+void MM2Q::Container<T, HookPtr>::adjustTail(LruType type) {
+  //auto adjustFrom = [&](LruList tail, LruList list) -> T* {
+  //  auto ptr = list.getTail();
+  //  while (ptr && tail.size() + 1 <= config_.tailSize) {
+  //    markTail(*ptr);
+  //    list.remove(*ptr);
+  //    tail.linkAtHead(*ptr);
+  //    ptr = list.getTail();
+  //  }
+  //};
+  if (type == LruType::Warm) {
+    auto ptr = lruWarm_.getTail();
+    while (ptr && lruWarmTail_.size() + 1 <= config_.tailSize) {
+      markTail(*ptr);
+      lruWarm_.remove(*ptr);
+      lruWarmTail_.linkAtHead(*ptr);
+      ptr = lruWarm_.getTail();
+    }
+  } else if (type == LruType::Cold) {
+    auto ptr = lruCold_.getTail();
+    while (ptr && lruColdTail_.size() + 1 <= config_.tailSize) {
+      markTail(*ptr);
+      lruCold_.remove(*ptr);
+      lruColdTail_.linkAtHead(*ptr);
+      ptr = lruCold_.getTail();
+    }
   }
 }
 

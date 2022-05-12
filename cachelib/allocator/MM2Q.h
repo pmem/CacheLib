@@ -332,22 +332,7 @@ class MM2Q {
 
    public:
     Container() = default;
-    Container(Config c, PtrCompressor compressor)
-          : tailTrackingEnabled_(c.tailSize > 0),
-            config_(std::move(c)) {
-      //for (int i = 0; i < LruType::NumTypes; i++) {
-      //  lru_.push_back(LruList(std::move(compressor)));
-      //}
-      //for (int i = 0; i < LruType::NumTypes; i++) {
-      //  lruMutex_.push_back(Mutex());
-      //}
-      lruRefreshTime_ = config_.lruRefreshTime;
-      nextReconfigureTime_ =
-          config_.mmReconfigureIntervalSecs.count() == 0
-              ? std::numeric_limits<Time>::max()
-              : static_cast<Time>(util::getCurrentTimeSec()) +
-                    config_.mmReconfigureIntervalSecs.count();
-    }
+    Container(Config c, PtrCompressor compressor); 
 
     // If the serialized data has 3 lists and we want to expand to 5 lists
     // without enabling tail hits tracking, we need to adjust list positions
@@ -467,19 +452,11 @@ class MM2Q {
     bool isEmpty() const noexcept { return size() == 0; }
 
     size_t size() const noexcept {
-      //return lruMutex_->lock_combine([this]() { return lru_.size(); });
-        //auto hotlck = LockHolder{*lruMutex_[LruType::Hot], std::defer_lock};
-        //auto warmlck = LockHolder{*lruMutex_[LruType::Warm], std::defer_lock};
-        //auto warmtaillck = LockHolder{*lruMutex_[LruType::WarmTail], std::defer_lock};
-        //auto coldlck = LockHolder{*lruMutex_[LruType::Cold], std::defer_lock};
-        //auto coldtaillck = LockHolder{*lruMutex_[LruType::ColdTail], std::defer_lock};
-        //std::lock(hotlck,warmlck,warmtaillck,coldlck,coldtaillck);
-        // shrink Warm (and WarmTail) if their total size is larger than expected
-        size_t lru_size = lru_[LruType::Hot].size() +
-                          lru_[LruType::Warm].size() +
-                          lru_[LruType::WarmTail].size() +
-                          lru_[LruType::Cold].size() +
-                          lru_[LruType::ColdTail].size();
+        size_t lru_size = lruHot_.size() +
+                    lruWarm_.size() +
+                    lruWarmTail_.size() +
+                    lruCold_.size() +
+                    lruColdTail_.size();
         return lru_size;
     }
 
@@ -595,14 +572,26 @@ class MM2Q {
     // - Then move items from Hot to Cold until Hot is within expected size.
     // - Lastly, adjust Warm and Cold so that their tails are at expected sizes.
     void rebalance() noexcept;
+    
+    std::mutex* getMutex(const T& node) noexcept;
 
     // protects all operations on the lru. We never really just read the state
     // of the LRU. Hence we dont really require a RW mutex at this point of
     // time.
-    mutable std::vector<Mutex> lruMutex_;
+    mutable Mutex mutexHot_;
+    mutable Mutex mutexWarm_;
+    mutable Mutex mutexWarmTail_;
+    mutable Mutex mutexCold_;
+    mutable Mutex mutexColdTail_;
 
-    // the lru
-    std::vector<LruList> lru_; //{LruType::NumTypes, PtrCompressor{}};
+    const PtrCompressor compressor_{};
+    
+    // the lrus
+    LruList lruHot_{};
+    LruList lruWarm_{};
+    LruList lruWarmTail_{};
+    LruList lruCold_{};
+    LruList lruColdTail_{};
 
     // size of tail after insertion point
     size_t tailSize_{0};

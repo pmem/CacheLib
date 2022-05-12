@@ -91,7 +91,8 @@ struct MM2QConfig {
   5: bool updateOnRead = true,
   6: bool tryLockUpdate = false,
   7: bool rebalanceOnRecordAccess = true,
-  8: double lruRefreshRatio = 0.0,
+  8: i32 rebalanceProb = 10,
+  9: double lruRefreshRatio = 0.0,
 }
 
 struct MM2QObject {
@@ -102,7 +103,7 @@ struct MM2QObject {
   11: i64 evictions = 0,
 
   // Warm, hot and cold lrus
-  12: required MultiDListObject lrus,
+  12: required list<DListObject> lrus,
 }
 
 struct MM2QCollection {
