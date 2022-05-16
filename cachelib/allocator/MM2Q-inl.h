@@ -232,7 +232,6 @@ std::mutex* MM2Q::Container<T, HookPtr>::getMutex(
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
 void MM2Q::Container<T, HookPtr>::rebalance() noexcept {
     
-  std::scoped_lock lock(mutexHot_,mutexWarm_,mutexWarmTail_,mutexCold_,mutexColdTail_);
   // shrink Warm (and WarmTail) if their total size is larger than expected
   size_t lru_size = lruHot_.size() +
                     lruWarm_.size() +
@@ -244,6 +243,7 @@ void MM2Q::Container<T, HookPtr>::rebalance() noexcept {
   while (lruWarm_.size() +
              lruWarmTail_.size() >
          expectedSize) {
+    std::scoped_lock lock(mutexWarm_,mutexWarmTail_,mutexCold_);
     //auto popFrom = [&](LruType lruType) -> T* {
     //  
     //  auto lru = *getLruFromType(lruType);
@@ -279,16 +279,19 @@ void MM2Q::Container<T, HookPtr>::rebalance() noexcept {
     markCold(*node);
   }
 
-  // shrink Hot if its size is larger than expected
-  expectedSize = config_.hotSizePercent * lru_size / 100;
-  while (lruHot_.size() > expectedSize) {
-    auto node = lruHot_.getTail();
-    XDCHECK(node);
-    XDCHECK(isHot(*node));
-    lruHot_.remove(*node);
-    lruCold_.linkAtHead(*node);
-    unmarkHot(*node);
-    markCold(*node);
+  {
+    std::scoped_lock lock(mutexHot_);
+    // shrink Hot if its size is larger than expected
+    expectedSize = config_.hotSizePercent * lru_size / 100;
+    while (lruHot_.size() > expectedSize) {
+      auto node = lruHot_.getTail();
+      XDCHECK(node);
+      XDCHECK(isHot(*node));
+      lruHot_.remove(*node);
+      lruCold_.linkAtHead(*node);
+      unmarkHot(*node);
+      markCold(*node);
+    }
   }
 
   // adjust tail sizes for Cold and Warm
@@ -416,12 +419,9 @@ bool MM2Q::Container<T, HookPtr>::remove(T& node) noexcept {
     removeLocked(node);
 
   }
-  int rebal = rand() % 100;
-  if (rebal <= config_.rebalanceProb) {
-    rebalance(); //TODO figure out when to call rebalance
-  }
-  //if (doRebalance) {
-  //  rebalance();
+  //int rebal = rand() % 100;
+  //if (rebal <= config_.rebalanceProb) {
+  //  rebalance(); //TODO figure out when to call rebalance
   //}
   return true;
 }
@@ -508,6 +508,7 @@ void MM2Q::Container<T, HookPtr>::adjustTail(LruType type) {
   //  }
   //};
   if (type == LruType::Warm) {
+    std::scoped_lock lock(mutexWarm_,mutexWarmTail_);
     auto ptr = lruWarm_.getTail();
     while (ptr && lruWarmTail_.size() + 1 <= config_.tailSize) {
       markTail(*ptr);
@@ -516,6 +517,7 @@ void MM2Q::Container<T, HookPtr>::adjustTail(LruType type) {
       ptr = lruWarm_.getTail();
     }
   } else if (type == LruType::Cold) {
+    std::scoped_lock lock(mutexCold_,mutexColdTail_);
     auto ptr = lruCold_.getTail();
     while (ptr && lruColdTail_.size() + 1 <= config_.tailSize) {
       markTail(*ptr);
@@ -570,9 +572,16 @@ MMContainerStat MM2Q::Container<T, HookPtr>::getStats() const noexcept {
     // we cannot do that here because this critical section returns more data
     // than can be coalesced internally by folly::DistributedMutex (> 48 bytes).
     // So we construct and return the entire object under the lock.
+  
+  std::scoped_lock lock(mutexHot_,mutexWarm_,mutexWarmTail_,mutexCold_,mutexColdTail_);
+  size_t lru_size = lruHot_.size() +
+                    lruWarm_.size() +
+                    lruWarmTail_.size() +
+                    lruCold_.size() +
+                    lruColdTail_.size();
     return 
         MMContainerStat{
-        0, //lru_.size(),
+        lru_size, //lru_.size(),
         false, //nullptr ? 0 : getUpdateTime(*tail),
         lruRefreshTime_.load(std::memory_order_relaxed),
         numHotAccesses_,
