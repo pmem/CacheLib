@@ -247,7 +247,8 @@ class AllocatorHitStatsTest : public SlabAllocatorTestBase {
     // allocations across a set of sizes.
     std::vector<std::string> keys;
     const unsigned int nKeys = 1000;
-    unsigned int initialAllocs = 0;
+    const unsigned int nChkPoint = 20;
+    unsigned int initialAllocs = 0, successAllocs = 0;
     std::unordered_map<ClassId, uint64_t> pool1Alloc;
     while (keys.size() != nKeys) {
       const auto keyLen = folly::Random::rand32(10, 100);
@@ -259,19 +260,24 @@ class AllocatorHitStatsTest : public SlabAllocatorTestBase {
       if (handle) {
         keys.push_back(str);
         pool1Alloc[classId] += alloc.getAllocationSize(classId, poolId);
+        if (++successAllocs == nChkPoint) {
+          // This check helps to verify accuracy of pool used size before
+          // evictions start to occur. Adjust pool alloc size for each class
+          // to its ceiling slab size and calculate the total. This should
+          // match the pool used size reported by global stats counter.
+          uint64_t pool1AllocSize = 0;
+          for (const auto& cAlloc : pool1Alloc) {
+            pool1AllocSize += (cAlloc.second + Slab::kSize - 1) / Slab::kSize;
+          }
+          pool1AllocSize *= Slab::kSize;
+          const auto tempCacheStats = alloc.getGlobalCacheStats();
+          ASSERT_EQ(tempCacheStats.numEvictions, 0);
+          ASSERT_EQ(tempCacheStats.poolUsedSize.size(),
+                    MemoryPoolManager::kMaxPools);
+          ASSERT_EQ(tempCacheStats.poolUsedSize[0], pool1AllocSize);
+        }
       }
     }
-
-    // Adjust pool alloc size for each class to its ceiling slab size
-    // and calculate the total
-    uint64_t pool1AllocSize = 0;
-    for (const auto& cAlloc : pool1Alloc) {
-      pool1AllocSize += (cAlloc.second + Slab::kSize - 1) / Slab::kSize;
-    }
-    pool1AllocSize *= Slab::kSize;
-    const auto tempCacheStats = alloc.getGlobalCacheStats();
-    ASSERT_EQ(tempCacheStats.poolUsedSize.size(), MemoryPoolManager::kMaxPools);
-    ASSERT_EQ(tempCacheStats.poolUsedSize[0], pool1AllocSize);
 
     if (!evictedKeys.empty()) {
       for (const auto& key : evictedKeys) {
