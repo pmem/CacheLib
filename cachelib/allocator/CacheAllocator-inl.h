@@ -2365,12 +2365,40 @@ PoolId CacheAllocator<CacheTrait>::addPool(
   folly::SharedMutex::WriteHolder w(poolsResizeAndRebalanceLock_);
 
   PoolId pid = 0;
+  size_t remainingPoolSize = size;
+  std::vector<size_t> tierPoolSizes;
   auto tierConfigs = config_.getMemoryTierConfigs();
+  auto totalCacheSize = 0;
+
   for (TierId tid = 0; tid < numTiers_; tid++) {
-    auto tierSizeRatio = static_cast<double>(
-        tierConfigs[tid].getSize()) / config_.getCacheSize();
-    auto tierPoolSize = static_cast<size_t>(tierSizeRatio * size);
-    auto res = allocator_[tid]->addPool(name, tierPoolSize, allocSizes, ensureProvisionable);
+    totalCacheSize += allocator_[tid]->getMemorySize();
+  }
+
+  size_t remainingCacheSize = totalCacheSize;
+  for (TierId tid = 0; tid < numTiers_; tid++) {
+    auto tierSizeRatio =
+        static_cast<double>(allocator_[tid]->getMemorySize()) / totalCacheSize;
+    size_t tierPoolSize = static_cast<size_t>(tierSizeRatio * size);
+    tierPoolSizes.push_back(tierPoolSize);
+    remainingPoolSize -= tierPoolSizes.back();
+    remainingCacheSize -= tierPoolSizes.back();
+  }
+
+  if (remainingPoolSize) {
+    if (remainingPoolSize < remainingCacheSize) {
+      for (TierId tid = 0; (tid < numTiers_) && remainingPoolSize;
+           tid++, remainingPoolSize--) {
+        tierPoolSizes[tid]++;
+      }
+    } else {
+      throw std::invalid_argument(folly::sformat(
+          "Not enough memory to allocate pool of size {}", size));
+    }
+  }
+
+  for (TierId tid = 0; tid < numTiers_; tid++) {
+    auto res = allocator_[tid]->addPool(
+        name, tierPoolSizes[tid], allocSizes, ensureProvisionable);
     XDCHECK(tid == 0 || res == pid);
     pid = res;
   }

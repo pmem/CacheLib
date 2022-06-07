@@ -253,6 +253,56 @@ TEST_F(LruMemoryTiersTest, TestTieredCacheSize) {
   }
 }
 
+TEST_F(LruMemoryTiersTest, TestPoolAllocationFullCache) {
+  LruAllocatorConfig cfg =
+      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
+                            {std::make_tuple(5, 0), std::make_tuple(2, 0)});
+  basicCheck(cfg, {defaultDaxPath, defaultPmemPath});
+
+  std::unique_ptr<LruAllocator> alloc = std::unique_ptr<LruAllocator>(
+      new LruAllocator(LruAllocator::SharedMemNew, cfg));
+
+  auto pool = alloc->addPool("default", alloc->getCacheMemoryStats().cacheSize);
+}
+
+TEST_F(LruMemoryTiersTest, TestPoolAllocationOversize) {
+  LruAllocatorConfig cfg =
+      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
+                            {std::make_tuple(5, 0), std::make_tuple(2, 0)});
+  basicCheck(cfg, {defaultDaxPath, defaultPmemPath});
+
+  std::unique_ptr<LruAllocator> alloc = std::unique_ptr<LruAllocator>(
+      new LruAllocator(LruAllocator::SharedMemNew, cfg));
+
+  EXPECT_THROW(
+      alloc->addPool("default", alloc->getCacheMemoryStats().cacheSize + 1),
+      std::invalid_argument);
+}
+
+TEST_F(LruMemoryTiersTest, TestPoolAllocationEmpty) {
+  LruAllocatorConfig cfg =
+      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
+                            {std::make_tuple(5, 0), std::make_tuple(2, 0)});
+  basicCheck(cfg, {defaultDaxPath, defaultPmemPath});
+
+  std::unique_ptr<LruAllocator> alloc = std::unique_ptr<LruAllocator>(
+      new LruAllocator(LruAllocator::SharedMemNew, cfg));
+
+  auto pool = alloc->addPool("default", 0);
+}
+
+TEST_F(LruMemoryTiersTest, TestPoolAllocationTiny) {
+  LruAllocatorConfig cfg =
+      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
+                            {std::make_tuple(5, 0), std::make_tuple(2, 0)});
+  basicCheck(cfg, {defaultDaxPath, defaultPmemPath});
+
+  std::unique_ptr<LruAllocator> alloc = std::unique_ptr<LruAllocator>(
+      new LruAllocator(LruAllocator::SharedMemNew, cfg));
+
+  auto pool = alloc->addPool("default", 1);
+}
+
 } // namespace tests
 } // namespace cachelib
 } // namespace facebook
