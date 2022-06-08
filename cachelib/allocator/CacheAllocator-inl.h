@@ -2562,6 +2562,16 @@ const std::string CacheAllocator<CacheTrait>::getCacheName() const {
 }
 
 template <typename CacheTrait>
+size_t CacheAllocator<CacheTrait>::getPoolSize(PoolId poolId) const {
+  size_t poolSize = 0;
+  for (auto& allocator: allocator_) {
+    const auto& pool = allocator->getPool(poolId);
+    poolSize += pool.getPoolSize();
+  }
+  return poolSize;
+}
+
+template <typename CacheTrait>
 PoolStats CacheAllocator<CacheTrait>::getPoolStats(PoolId poolId) const {
   const auto& pool = allocator_[currentTier()]->getPool(poolId);
   const auto& allocSizes = pool.getAllocSizes();

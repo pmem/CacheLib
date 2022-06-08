@@ -124,6 +124,11 @@ class MemoryTiersTest : public AllocatorTest<Allocator> {
     dramConfig.setCacheSize(totalCacheSize);
     return dramConfig;
   }
+
+  void validatePoolSize(PoolId poolId, std::unique_ptr<LruAllocator>& allocator, size_t expectedSize) {
+    size_t actualSize = allocator->getPoolSize(poolId);
+    EXPECT_EQ(actualSize, expectedSize);
+  }
 };
 
 using LruMemoryTiersTest = MemoryTiersTest<LruAllocator>;
@@ -263,6 +268,7 @@ TEST_F(LruMemoryTiersTest, TestPoolAllocationFullCache) {
       new LruAllocator(LruAllocator::SharedMemNew, cfg));
 
   auto pool = alloc->addPool("default", alloc->getCacheMemoryStats().cacheSize);
+  validatePoolSize(pool, alloc, alloc->getCacheMemoryStats().cacheSize);
 }
 
 TEST_F(LruMemoryTiersTest, TestPoolAllocationOversize) {
@@ -289,6 +295,7 @@ TEST_F(LruMemoryTiersTest, TestPoolAllocationEmpty) {
       new LruAllocator(LruAllocator::SharedMemNew, cfg));
 
   auto pool = alloc->addPool("default", 0);
+  validatePoolSize(pool, alloc, 0);
 }
 
 TEST_F(LruMemoryTiersTest, TestPoolAllocationTiny) {
@@ -301,6 +308,20 @@ TEST_F(LruMemoryTiersTest, TestPoolAllocationTiny) {
       new LruAllocator(LruAllocator::SharedMemNew, cfg));
 
   auto pool = alloc->addPool("default", 1);
+  validatePoolSize(pool, alloc, 1);
+}
+
+TEST_F(LruMemoryTiersTest, TestPoolAllocationSmall) {
+  LruAllocatorConfig cfg =
+      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
+                            {std::make_tuple(5, 0), std::make_tuple(2, 0)});
+  basicCheck(cfg, {defaultDaxPath, defaultPmemPath});
+
+  std::unique_ptr<LruAllocator> alloc = std::unique_ptr<LruAllocator>(
+      new LruAllocator(LruAllocator::SharedMemNew, cfg));
+
+  auto pool = alloc->addPool("default", 8);
+  validatePoolSize(pool, alloc, 8);
 }
 
 } // namespace tests
