@@ -1045,6 +1045,9 @@ class CacheAllocator : public CacheBase {
   // get cache name
   const std::string getCacheName() const override final;
 
+  // combined pool size for all memory tiers
+  size_t getPoolSize(PoolId pid) const;
+
   // pool stats by pool id
   PoolStats getPoolStats(PoolId pid) const override final;
 
