@@ -1475,15 +1475,6 @@ class CacheAllocator : public CacheBase {
   //              not exist.
   FOLLY_ALWAYS_INLINE ItemHandle findFastImpl(Key key, AccessMode mode);
 
-  // Moves a regular item to a different memory tier.
-  //
-  // @param oldItem     Reference to the item being moved
-  // @param newItemHdl  Reference to the handle of the new item being moved into
-  //
-  // @return true  If the move was completed, and the containers were updated
-  //               successfully.
-  ItemHandle moveRegularItemOnEviction(Item& oldItem, ItemHandle& newItemHdl);
-
   // Moves a regular item to a different slab. This should only be used during
   // slab release after the item's moving bit has been set. The user supplied
   // callback is responsible for copying the contents and fixing the semantics
@@ -1494,8 +1485,8 @@ class CacheAllocator : public CacheBase {
   //
   // @return true  If the move was completed, and the containers were updated
   //               successfully.
-  bool moveRegularItem(Item& oldItem, ItemHandle& newItemHdl);
-  bool moveRegularItemForPromotion(Item& oldItem, ItemHandle& newItemHdl);
+  template <typename Predicate>
+  bool moveRegularItem(Item& oldItem, ItemHandle& newItemHdl, Predicate&& predicate);
 
   // template class for viewAsChainedAllocs that takes either ReadHandle or
   // WriteHandle
@@ -1774,7 +1765,8 @@ class CacheAllocator : public CacheBase {
   //
   // @return    true  if the item has been moved
   //            false if we have exhausted moving attempts
-  bool tryMovingForSlabRelease(Item& item, ItemHandle& newItemHdl);
+  template <typename Predicate>
+  bool tryMovingForSlabRelease(Item& item, ItemHandle& newItemHdl, Predicate &&predicate);
 
   // Evict an item from access and mm containers and
   // ensure it is safe for freeing.
@@ -2092,91 +2084,14 @@ class CacheAllocator : public CacheBase {
     return 0;
   }
 
-  bool addWaitContextForMovingItem(
-      folly::StringPiece key, std::shared_ptr<WaitContext<ReadHandle>> waiter);
-
-  class MoveCtx {
-   public:
-    MoveCtx() {}
-
-    ~MoveCtx() {
-      // prevent any further enqueue to waiters
-      // Note: we don't need to hold locks since no one can enqueue
-      // after this point.
-      wakeUpWaiters();
-    }
-
-    // record the item handle. Upon destruction we will wake up the waiters
-    // and pass a clone of the handle to the callBack. By default we pass
-    // a null handle
-    void setItemHandle(ItemHandle _it) { it = std::move(_it); }
-
-    // enqueue a waiter into the waiter list
-    // @param  waiter       WaitContext
-    void addWaiter(std::shared_ptr<WaitContext<ReadHandle>> waiter) {
-      XDCHECK(waiter);
-      waiters.push_back(std::move(waiter));
-    }
-
-   private:
-    // notify all pending waiters that are waiting for the fetch.
-    void wakeUpWaiters() {
-      bool refcountOverflowed = false;
-      for (auto& w : waiters) {
-        // If refcount overflowed earlier, then we will return miss to
-        // all subsequent waitors.
-        if (refcountOverflowed) {
-          w->set(ItemHandle{});
-          continue;
-        }
-
-        try {
-          w->set(it.clone());
-        } catch (const exception::RefcountOverflow&) {
-          // We'll return a miss to the user's pending read,
-          // so we should enqueue a delete via NvmCache.
-          // TODO: cache.remove(it);
-          refcountOverflowed = true;
-        }
-      }
-    }
-
-    ItemHandle it; // will be set when Context is being filled
-    std::vector<std::shared_ptr<WaitContext<ReadHandle>>> waiters; // list of
-                                                                   // waiters
-  };
-  using MoveMap =
-      folly::F14ValueMap<folly::StringPiece,
-                         std::unique_ptr<MoveCtx>,
-                         folly::HeterogeneousAccessHash<folly::StringPiece>>;
-
-  static size_t getShardForKey(folly::StringPiece key) {
-    return folly::Hash()(key) % kShards;
-  }
-
-  MoveMap& getMoveMapForShard(size_t shard) {
-    return movesMap_[shard].movesMap_;
-  }
-
-  MoveMap& getMoveMap(folly::StringPiece key) {
-    return getMoveMapForShard(getShardForKey(key));
-  }
-
-  std::unique_lock<std::mutex> getMoveLockForShard(size_t shard) {
-    return std::unique_lock<std::mutex>(moveLock_[shard].moveLock_);
-  }
-
-  std::unique_lock<std::mutex> getMoveLock(folly::StringPiece key) {
-    return getMoveLockForShard(getShardForKey(key));
-  }
-
   // Whether the memory allocator for this cache allocator was created on shared
   // memory. The hash table, chained item hash table etc is also created on
   // shared memory except for temporary shared memory mode when they're created
   // on heap.
   const bool isOnShm_{false};
 
-  const Config config_{};
+  // TODO: make it const again
+  Config config_{};
 
   const typename Config::MemoryTierConfigs memoryTierConfigs;
 
@@ -2269,22 +2184,6 @@ class CacheAllocator : public CacheBase {
   // mutex protecting the creation and destruction of workers poolRebalancer_,
   // poolResizer_, poolOptimizer_, memMonitor_, reaper_
   mutable std::mutex workersMutex_;
-
-  static constexpr size_t kShards = 8192; // TODO: need to define right value
-
-  struct MovesMapShard {
-    alignas(folly::hardware_destructive_interference_size) MoveMap movesMap_;
-  };
-
-  struct MoveLock {
-    alignas(folly::hardware_destructive_interference_size) std::mutex moveLock_;
-  };
-
-  // a map of all pending moves
-  std::vector<MovesMapShard> movesMap_;
-
-  // a map of move locks for each shard
-  std::vector<MoveLock> moveLock_;
 
   // time when the ram cache was first created
   const time_t cacheCreationTime_{0};

@@ -480,10 +480,6 @@ struct ReadHandleImpl {
       : alloc_(&alloc), it_(it) {
     if (it_ && it_->isIncomplete()) {
       waitContext_ = std::make_shared<ItemWaitContext>(alloc);
-      if (!alloc_->addWaitContextForMovingItem(it->getKey(), waitContext_)) {
-        waitContext_->discard();
-        waitContext_.reset();
-      }
     }
   }
 
