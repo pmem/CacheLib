@@ -309,6 +309,10 @@ class AllocationClass {
   // @throw std::logic_error if the object state can not be serialized
   serialization::AllocationClassObject saveState() const;
 
+  // TODO: hide
+  std::atomic<size_t> currAllocSize_{0};
+  std::atomic<size_t> curAllocatedSlabs_{0};
+
  private:
   // check if the state of the AllocationClass is valid and if not, throws an
   // std::invalid_argument exception. This is intended for use in

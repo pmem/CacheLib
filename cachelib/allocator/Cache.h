@@ -93,6 +93,12 @@ class CacheBase {
   //
   // @param poolId    The pool id to query
   virtual const MemoryPool& getPool(PoolId poolId) const = 0;
+  
+  // Get the reference  to a memory pool using a tier id, for stats purposes
+  //
+  // @param poolId    The pool id to query
+  // @param tierId    The tier of the pool id
+  virtual const MemoryPool& getPoolByTid(PoolId poolId, TierId tid) const = 0;
 
   // Get Pool specific stats (regular pools). This includes stats from the
   // Memory Pool and also the cache.
@@ -189,6 +195,12 @@ class CacheBase {
   // return the virtual interface of an attached  compact cache for a particular
   // pool id
   virtual const ICompactCache& getCompactCache(PoolId pid) const = 0;
+
+  virtual double slabsFreePercentage(TierId tid) const = 0;
+  virtual double acFreePercentage(TierId tid, PoolId pid, ClassId cid) const = 0;
+
+  virtual size_t acAllocSize(TierId, PoolId, ClassId) const = 0;
+  virtual size_t acMemorySize(TierId, PoolId, ClassId) const = 0;
 
  protected:
   // move bytes from one pool to another. The source pool should be at least

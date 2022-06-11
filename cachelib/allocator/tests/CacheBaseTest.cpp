@@ -32,6 +32,8 @@ class CacheBaseTest : public CacheBase, public SlabAllocatorTestBase {
         memoryPool_(0, 1024, *slabAllocator_, {64}) {}
   const std::string getCacheName() const override { return cacheName; }
   const MemoryPool& getPool(PoolId) const override { return memoryPool_; }
+  //TODO: do we support tiers in CacheBaseTEst
+  const MemoryPool& getPoolByTid(PoolId, TierId tid) const override { return memoryPool_; }
   PoolStats getPoolStats(PoolId) const override { return PoolStats(); }
   AllSlabReleaseEvents getAllSlabReleaseEvents(PoolId) const override {
     return AllSlabReleaseEvents{};
@@ -74,6 +76,22 @@ class CacheBaseTest : public CacheBase, public SlabAllocatorTestBase {
 
   PoolAdviseReclaimData calcNumSlabsToAdviseReclaim() override final {
     return {};
+  }
+
+  double acFreePercentage(TierId, PoolId, ClassId) const override final {
+    return 0.0;
+  }
+
+  double slabsFreePercentage(TierId) const override final {
+    return 0.0;
+  }
+
+  size_t acAllocSize(TierId, PoolId, ClassId) const override final {
+    return 0;
+  }
+
+  size_t acMemorySize(TierId, PoolId, ClassId) const override final {
+    return 0;
   }
 
  protected:

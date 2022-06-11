@@ -323,7 +323,12 @@ class SlabAllocator {
                                    memorySize_);
   }
 
- private:
+  // TODO: check if it is OK to use exsiting functions (might take a lock)
+  // if not, expose it properly via functions
+  std::atomic<size_t> numSlabsAllocated{0};
+
+ // TODO
+ // private:
   // null Slab* presenttation. With 4M Slab size, a valid slab index would never
   // reach 2^16 - 1;
   static constexpr SlabIdx kNullSlabIdx = std::numeric_limits<SlabIdx>::max();

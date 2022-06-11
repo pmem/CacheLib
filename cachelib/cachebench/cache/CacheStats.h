@@ -25,7 +25,34 @@ DECLARE_bool(report_api_latency);
 namespace facebook {
 namespace cachelib {
 namespace cachebench {
+
+struct BackgroundEvictionStats {
+  // the number of items this worker evicted by looking at pools/classes stats
+  uint64_t nEvictedItems{0};
+
+  // number of times we went executed the thread //TODO: is this def correct?
+  uint64_t nTraversals{0};
+
+  // number of classes
+  uint64_t nClasses{0};
+
+  // size of evicted items
+  uint64_t evictionSize{0};
+};
+
+struct BackgroundPromotionStats {
+  // the number of items this worker evicted by looking at pools/classes stats
+  uint64_t nPromotedItems{0};
+
+  // number of times we went executed the thread //TODO: is this def correct?
+  uint64_t nTraversals{0};
+
+};
+
 struct Stats {
+  BackgroundEvictionStats backgndEvicStats;
+  BackgroundPromotionStats backgndPromoStats;
+
   uint64_t numEvictions{0};
   uint64_t numItems{0};
 
@@ -95,10 +122,16 @@ struct Stats {
   uint64_t invalidDestructorCount{0};
   int64_t unDestructedItemCount{0};
 
+  std::vector<std::tuple<TierId, double>> slabsFreePercentage{};
+  std::vector<std::tuple<TierId, PoolId, ClassId, double>> acFreePercentage{};
+
   // populate the counters related to nvm usage. Cache implementation can decide
   // what to populate since not all of those are interesting when running
   // cachebench.
   std::unordered_map<std::string, double> nvmCounters;
+  
+  std::map<uint32_t, uint64_t> backgroundEvictionClasses;
+  std::map<uint32_t, uint64_t> backgroundPromotionClasses;
 
   // errors from the nvm engine.
   std::unordered_map<std::string, double> nvmErrors;
@@ -115,7 +148,21 @@ struct Stats {
         << std::endl;
     out << folly::sformat("RAM Evictions : {:,}", numEvictions) << std::endl;
 
-    if (numCacheGets > 0) {
+    out << folly::sformat("Tier 0 Background Evicted items : {:,}",
+                            backgndEvicStats.nEvictedItems) << std::endl;
+    out << folly::sformat("Tier 0 Background Traversals : {:,}",
+                            backgndEvicStats.nTraversals) << std::endl;
+    out << folly::sformat("Tier 0 Total Classes : {:,}",
+                            backgndEvicStats.nClasses) << std::endl;
+    out << folly::sformat("Tier 0 Background Evicted Size : {:,}",
+                            backgndEvicStats.evictionSize) << std::endl;
+    
+    out << folly::sformat("Background Promotion items : {:,}",
+                            backgndPromoStats.nPromotedItems) << std::endl;
+    out << folly::sformat("Background Promotion Traversals : {:,}",
+                            backgndPromoStats.nTraversals) << std::endl;
+
+    if (numCacheGets >= 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;
       out << folly::sformat("Hit Ratio     : {:6.2f}%", overallHitRatio)
           << std::endl;
@@ -271,6 +318,31 @@ struct Stats {
       for (const auto& it : nvmCounters) {
         out << it.first << "  :  " << it.second << std::endl;
       }
+    }
+    
+    if (!backgroundEvictionClasses.empty() && backgndEvicStats.nEvictedItems > 0 ) {
+      out << "== Class Background Eviction Counters Map ==" << std::endl;
+      for (const auto& it : backgroundEvictionClasses) {
+        out << it.first << "  :  " << it.second << std::endl;
+      }
+    }
+    
+    if (!backgroundPromotionClasses.empty() && backgndPromoStats.nPromotedItems > 0) {
+      out << "== Class Background Promotion Counters Map ==" << std::endl;
+      for (const auto& it : backgroundPromotionClasses) {
+        out << it.first << "  :  " << it.second << std::endl;
+      }
+    }
+
+    // TODO: add flag for it
+    for (auto &slabs : slabsFreePercentage) {
+      auto [tid, percent] = slabs;
+      out << folly::sformat("TierId {}, Slabs percentage free {}", tid, percent) << std::endl;
+    }
+
+    for (auto &ac : acFreePercentage) {
+      auto [tid, pid, cid, percent] = ac;
+      out << folly::sformat("TierId {}, Pool {}, Class {}, percentage free {}", tid, pid, cid, percent) << std::endl;
     }
 
     if (numRamDestructorCalls > 0 || numNvmDestructorCalls > 0) {
