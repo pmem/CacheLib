@@ -260,6 +260,16 @@ Cache<Allocator>::Cache(const CacheConfig& config,
 
   allocatorConfig_.cacheName = "cachebench";
 
+  allocatorConfig_.evictionSlabWatermark = config_.evictionSlabWatermark;
+  allocatorConfig_.evictionAcWatermark = config_.evictionAcWatermark;
+  allocatorConfig_.lowSlabAllocationWatermak = config_.lowSlabAllocationWatermak;
+  allocatorConfig_.lowAcAllocationWatermark = config_.lowAcAllocationWatermark;
+  allocatorConfig_.highAcAllocationWatermark = config_.highAcAllocationWatermark;
+  allocatorConfig_.sizeThresholdPolicy = config_.sizeThresholdPolicy;
+  allocatorConfig_.defaultTierChancePercentage = config_.defaultTierChancePercentage;
+  allocatorConfig_.numDuplicateElements = config_.numDuplicateElements;
+  allocatorConfig_.syncPromotion = config_.syncPromotion;
+
   if (!allocatorConfig_.cacheDir.empty()) {
     cache_ =
         std::make_unique<Allocator>(Allocator::SharedMemNew, allocatorConfig_);

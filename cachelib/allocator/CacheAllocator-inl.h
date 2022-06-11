@@ -415,18 +415,96 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
 }
 
 template <typename CacheTrait>
+double CacheAllocator<CacheTrait>::slabsAllocatedPercentage(TierId tid)
+{
+  auto allocated = allocator_[tid]->slabAllocator_.numSlabsAllocated.load(std::memory_order_relaxed);
+  auto usable = allocator_[tid]->slabAllocator_.numSlabsUsable.load(std::memory_order_relaxed);
+  return 100.0 * static_cast<double>(allocated) / static_cast<double>(usable);
+}
+
+template <typename CacheTrait>
+TierId
+CacheAllocator<CacheTrait>::getTargetTierForItem(PoolId pid,
+                                             typename Item::Key key,
+                                             uint32_t size,
+                                             uint32_t creationTime,
+                                             uint32_t expiryTime) {
+  if (numTiers_ == 1)
+    return 0;
+
+  const TierId defaultTargetTier = 0;
+
+  // Look at total amount of free slabs first. If there are some, it
+  // does not make sense to check per-pool or per-ac occupancy since
+  // they can always request additional slab.
+  if (slabsAllocatedPercentage(defaultTargetTier) < config_.lowSlabAllocationWatermak)
+    return defaultTargetTier;
+
+  // Now, look at memory usage inside memory pool / allocation class.
+
+  // TODO: COULD we implement BG worker which would move slabs around
+  // so that there is similar amount of free space in each pool/ac.
+  // Should this be responsibility of BG evictor?
+  
+  const auto requiredSize = Item::getRequiredSize(key, size);
+  const auto cid = allocator_[defaultTargetTier]->getAllocationClassId(pid, requiredSize);
+
+  // auto poolUsableSize = allocator_[defaultTargetTier]->memoryPoolSize_[pid].load(std::memory_order_relaxed);
+  // auto poolAllocatedSize = allocator_[defaultTargetTier]->getMemoryPool(pid).getCurrentAllocSize();
+  // auto poolAllocatedPercentage = 100.0 * static_cast<double>(poolAllocatedSize) / static_cast<double>(poolSize);
+
+  // TODO: should we only look at the pool only or at allocation class
+  // if (poolAllocatedPercentage < lowPoolAllocationWatermark)
+  //   return defaultTargetTier;
+
+  // if (poolAllocatedPercentage > highPoolAllocationWatermark)
+  //   return defaultTargetTier + 1;
+
+  const auto &ac = allocator_[defaultTargetTier]->getPool(pid).getAllocationClassFor(cid);
+  auto acAllocatedSize = ac.currAllocSize_.load(std::memory_order_relaxed);
+  auto acUsableSize = ac.curAllocatedSlabs_.load(std::memory_order_relaxed);
+  auto acAllocatedPercentage = 100.0 * static_cast<double>(acAllocatedSize) / static_cast<double>(acUsableSize);
+
+  if (acAllocatedPercentage < config_.lowAcAllocationWatermark)
+    return defaultTargetTier;
+
+  if (acAllocatedPercentage > config_.highAcAllocationWatermark)
+    return defaultTargetTier + 1;
+
+  // TODO: we can even think about creating different allocation classes for PMEM
+  // and we could look at possible fragmentation when deciding where to put the item
+  if (config_.sizeThresholdPolicy)
+    return requiredSize < config_.sizeThresholdPolicy ? defaultTargetTier : defaultTargetTier + 1;
+
+  // TODO: (e.g. always put chained items to PMEM)
+  // if (chainedItemsPolicy)
+  //  return item.isChainedItem() ? defaultTargetTier + 1 : defaultTargetTier;
+
+  // TODO:
+  // if (expiryTimePolicy)
+  //   return (expiryTime - creationTime) < expiryTimePolicy ? defaultTargetTier : defaultTargetTier + 1;
+
+  // TODO:
+  // if (keyPolicy) // this can be based on key length or some other properties
+  //  return getTargetTierForKey(key);
+
+  // TODO:
+  // if (compressabilityPolicy) // if compresses well store in PMEM? latency will be higher anyway
+  //  return TODO;
+
+  // TODO: only works for 2 tiers
+  return (folly::Random::rand32() % 100) < config_.defaultTierChancePercentage ? defaultTargetTier : defaultTargetTier + 1;
+}
+
+template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::WriteHandle
 CacheAllocator<CacheTrait>::allocateInternal(PoolId pid,
                                              typename Item::Key key,
                                              uint32_t size,
                                              uint32_t creationTime,
                                              uint32_t expiryTime) {
-  auto tid = 0; /* TODO: consult admission policy */
-  for(TierId tid = 0; tid < numTiers_; ++tid) {
-    auto handle = allocateInternalTier(tid, pid, key, size, creationTime, expiryTime);
-    if (handle) return handle;
-  }
-  return {};
+  auto tid = getTargetTierForItem(pid, key, size, creationTime, expiryTime);
+  return allocateInternalTier(tid, pid, key, size, creationTime, expiryTime);
 }
 
 template <typename CacheTrait>
@@ -2328,6 +2406,10 @@ void CacheAllocator<CacheTrait>::createMMContainers(const PoolId pid,
                   .getAllocsPerSlab()
             : 0);
     for (TierId tid = 0; tid < numTiers_; tid++) {
+      if constexpr (std::is_same_v<MMConfig, MMLru::Config> || std::is_same_v<MMConfig, MM2Q::Config>) {
+        config.lruInsertionPointSpec  = config_.memoryTierConfigs[tid].lruInsertionPointSpec ;
+        config.markUsefulChance = config_.memoryTierConfigs[tid].markUsefulChance;
+      }
       mmContainers_[tid][pid][cid].reset(new MMContainer(config, compressor_));
     }
   }

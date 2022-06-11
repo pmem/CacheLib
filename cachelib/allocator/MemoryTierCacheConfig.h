@@ -75,6 +75,10 @@ public:
   // Options specific to shm type
   ShmTypeOpts shmOpts;
 
+  // TODO: move it to MMContainer config
+  double markUsefulChance{100.0}; // call mark useful only with this
+  uint8_t lruInsertionPointSpec{0}; // look at LRU/LRU2Q description (possible values vary)
+
 private:
   MemoryTierCacheConfig() = default;
 };

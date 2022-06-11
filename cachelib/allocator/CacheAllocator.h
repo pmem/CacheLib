@@ -1174,6 +1174,10 @@ class CacheAllocator : public CacheBase {
   // gives a relative offset to a pointer within the cache.
   uint64_t getItemPtrAsOffset(const void* ptr);
 
+  double slabsAllocatedPercentage(TierId tid);
+
+
+
   // this ensures that we dont introduce any more hidden fields like vtable by
   // inheriting from the Hooks and their bool interface.
   static_assert((sizeof(typename MMType::template Hook<Item>) +
@@ -1212,6 +1216,11 @@ class CacheAllocator : public CacheBase {
   // drops the refcount and if needed, frees the allocation back to the memory
   // allocator and executes the necessary callbacks. no-op if it is nullptr.
   FOLLY_ALWAYS_INLINE void release(Item* it, bool isNascent);
+
+  TierId getTargetTierForItem(PoolId pid, typename Item::Key key,
+                                             uint32_t size,
+                                             uint32_t creationTime,
+                                             uint32_t expiryTime);
 
   // This is the last step in item release. We also use this for the eviction
   // scenario where we have to do everything, but not release the allocation

@@ -578,6 +578,18 @@ class CacheAllocatorConfig {
   // skip promote children items in chained when parent fail to promote
   bool skipPromoteChildrenWhenParentFailed{false};
 
+  double evictionSlabWatermark{101.0}; // trigger slab eviction when this percentage of slabs are allocated
+  double evictionAcWatermark{101.0};   // trigger eviction when this percentage of allocation class is occupied
+  double lowSlabAllocationWatermak{101.0};  // try to insert to different tier if this much slabs are allocated
+  double lowAcAllocationWatermark{101.0};   // try to insert to different tier if this much memory is allocated in ac
+  double highAcAllocationWatermark{101.0};  // always insert to different tier if this much memory is allocated in ac
+  uint64_t sizeThresholdPolicy{0};          // try to insert to different tier if element is bigger than
+  double defaultTierChancePercentage{50.0}; // if previous policies do not aplly, select tier at random with this probability of selecting first one
+  // TODO: default could be based on rati
+
+  double numDuplicateElements{0.0}; // inclusivness of the cache
+  double syncPromotion{0.0}; // can promotion be done synchronously in user thread
+
   friend CacheT;
 
  private:

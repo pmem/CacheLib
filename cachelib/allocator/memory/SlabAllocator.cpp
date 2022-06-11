@@ -104,6 +104,7 @@ SlabAllocator::SlabAllocator(size_t size, const Config& config)
                     true,
                     config) {
   XDCHECK(!isRestorable());
+  numSlabsUsable = getNumUsableSlabs();
 }
 
 SlabAllocator::SlabAllocator(void* memoryStart,
@@ -111,6 +112,7 @@ SlabAllocator::SlabAllocator(void* memoryStart,
                              const Config& config)
     : SlabAllocator(memoryStart, memorySize, false, config) {
   XDCHECK(isRestorable());
+  numSlabsUsable = getNumUsableSlabs();
 }
 
 SlabAllocator::SlabAllocator(void* memoryStart,
@@ -134,6 +136,8 @@ SlabAllocator::SlabAllocator(void* memoryStart,
   if (config.lockMemory) {
     memoryLocker_ = std::thread{[this]() { lockMemoryAsync(); }};
   }
+
+    numSlabsUsable = getNumUsableSlabs();
 
   XDCHECK_EQ(0u, reinterpret_cast<uintptr_t>(memoryStart_) % sizeof(Slab));
   XDCHECK_EQ(0u, memorySize_ % sizeof(Slab));
@@ -211,6 +215,8 @@ SlabAllocator::SlabAllocator(const serialization::SlabAllocatorObject& object,
   }
 
   checkState();
+
+  numSlabsUsable = getNumUsableSlabs();
 }
 
 void SlabAllocator::lockMemoryAsync() noexcept {
@@ -359,6 +365,8 @@ Slab* SlabAllocator::makeNewSlab(PoolId id) {
     return nullptr;
   }
 
+  numSlabsAllocated.fetch_add(1, std::memory_order_relaxed);
+
   memoryPoolSize_[id] += sizeof(Slab);
   // initialize the header for the slab.
   initializeHeader(slab, id);
@@ -374,6 +382,8 @@ void SlabAllocator::freeSlab(Slab* slab) {
   }
 
   memoryPoolSize_[header->poolId] -= sizeof(Slab);
+  numSlabsAllocated.fetch_sub(1, std::memory_order_relaxed);
+
   // grab the lock
   LockHolder l(lock_);
   freeSlabs_.push_back(slab);
@@ -398,6 +408,7 @@ bool SlabAllocator::adviseSlab(Slab* slab) {
     advisedSlabs_.push_back(slab);
     // This doesn't reset flags
     header->resetAllocInfo();
+    numSlabsUsable.fetch_sub(1, std::memory_order_relaxed);
     return true;
   }
   // Unset the flag since we failed to advise this slab away
@@ -432,6 +443,7 @@ Slab* FOLLY_NULLABLE SlabAllocator::reclaimSlab(PoolId id) {
     (void)val;
   }
   memoryPoolSize_[id] += sizeof(Slab);
+  numSlabsUsable.fetch_add(1, std::memory_order_relaxed);
   // initialize the header for the slab.
   initializeHeader(slab, id);
   return slab;

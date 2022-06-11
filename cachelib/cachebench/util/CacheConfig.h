@@ -48,12 +48,17 @@ struct MemoryTierConfig : public JSONConfig {
   MemoryTierCacheConfig getMemoryTierCacheConfig() {
     MemoryTierCacheConfig config = memoryTierCacheConfigFromSource();
     config.setSize(size).setRatio(ratio);
+    config.markUsefulChance = markUsefulChance;
+    config.lruInsertionPointSpec = lruInsertionPointSpec;
     return config;
   }
 
   std::string file{""};
   size_t ratio{0};
   size_t size{0};
+
+  double markUsefulChance{100.0}; // call mark useful only with this
+  uint32_t lruInsertionPointSpec{0};
 
 private:
   MemoryTierCacheConfig memoryTierCacheConfigFromSource() {
@@ -282,6 +287,18 @@ struct CacheConfig : public JSONConfig {
   // enable the ItemDestructor feature, but not check correctness,
   // this verifies whether the feature affects throughputs.
   bool enableItemDestructor{false};
+
+  double evictionSlabWatermark{101.0}; // trigger slab eviction when this percentage of slabs are allocated
+  double evictionAcWatermark{101.0};   // trigger eviction when this percentage of allocation class is occupied
+  double lowSlabAllocationWatermak{101.0};  // try to insert to different tier if this much slabs are allocated
+  double lowAcAllocationWatermark{101.0};   // try to insert to different tier if this much memory is allocated in ac
+  double highAcAllocationWatermark{101.0};  // always insert to different tier if this much memory is allocated in ac
+  uint64_t sizeThresholdPolicy{0};          // try to insert to different tier if element is bigger than
+  double defaultTierChancePercentage{50.0}; // if previous policies do not aplly, select tier at random with this probability of selecting first one
+  // TODO: default could be based on ratio
+
+  double numDuplicateElements{0.0}; // inclusivness of the cache
+  double syncPromotion{0.0}; // can promotion be done synchronously in user thread
 
   explicit CacheConfig(const folly::dynamic& configJson);
 

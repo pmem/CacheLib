@@ -4,13 +4,14 @@
     "usePosixShm": true,
     "poolRebalanceIntervalSec": 0,
     "persistedCacheDir": "/tmp/mem-tier",
+    "htBucketPower": 28,
     "memoryTiers" : [
       {
         "ratio": 1
       },
       {
         "ratio": 1,
-        "file": "/pmem/memory-mapped-tier"
+        "file": "/mnt/pmem0/memory-mapped-tier"
       }
     ]
   }, 
