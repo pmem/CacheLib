@@ -2253,7 +2253,7 @@ PoolId CacheAllocator<CacheTrait>::addPool(
   size_t remainingPoolSize = size;
   std::vector<size_t> tierPoolSizes;
   auto tierConfigs = config_.getMemoryTierConfigs();
-  auto totalCacheSize = 0;
+  size_t totalCacheSize = 0;
 
   for (TierId tid = 0; tid < numTiers_; tid++) {
     totalCacheSize += allocator_[tid]->getMemorySize();
