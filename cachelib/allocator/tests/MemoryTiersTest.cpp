@@ -324,6 +324,19 @@ TEST_F(LruMemoryTiersTest, TestPoolAllocationSmall) {
   validatePoolSize(pool, alloc, 8);
 }
 
+TEST_F(LruMemoryTiersTest, TestPoolAllocation8GB) {
+  LruAllocatorConfig cfg =
+      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
+                            {std::make_tuple(1, 0), std::make_tuple(3, 0)}, 8 * GB);
+  basicCheck(cfg, {defaultDaxPath, defaultPmemPath});
+
+  std::unique_ptr<LruAllocator> alloc = std::unique_ptr<LruAllocator>(
+      new LruAllocator(LruAllocator::SharedMemNew, cfg));
+
+  auto pool = alloc->addPool("default", alloc->getCacheMemoryStats().cacheSize);
+  validatePoolSize(pool, alloc, alloc->getCacheMemoryStats().cacheSize);
+}
+
 } // namespace tests
 } // namespace cachelib
 } // namespace facebook
