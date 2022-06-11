@@ -49,14 +49,22 @@ public:
       }
     }
 
+   if (batches.size() == 0) {
+     return batches;
+   }
+
     auto maxBatch = *std::max_element(batches.begin(), batches.end());
     if (maxBatch == 0)
       return batches;
 
     std::transform(batches.begin(), batches.end(), batches.begin(), [&](auto numItems){
+      if (numItems == 0) {
+        return 0UL;
+      }
+
       auto cappedBatchSize = maxPromotionBatch * numItems / maxBatch;
       if (cappedBatchSize < minPromotionBatch)
-        return 0UL;
+        return minPromotionBatch;
       else
         return cappedBatchSize;
     });

@@ -297,6 +297,13 @@ class MM2Q {
     // Minimum interval between reconfigurations. If 0, reconfigure is never
     // called.
     std::chrono::seconds mmReconfigureIntervalSecs{};
+
+    double markUsefulChance{100.0};
+
+    // 0 - insert to hot queue
+    // 1 - insert to warm queue
+    // 2 - insert to cold queue
+    uint8_t lruInsertionPointSpec {0};
   };
 
   // The container object which can be used to keep track of objects of type
@@ -442,6 +449,9 @@ class MM2Q {
     // iterator passed as parameter.
     template <typename F>
     void withEvictionIterator(F&& f);
+
+    template <typename F>
+    void withPromotionIterator(F&& f);
 
     // get the current config as a copy
     Config getConfig() const;
