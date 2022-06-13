@@ -28,10 +28,8 @@ using facebook::cachelib::detail::isPageAlignedSize;
 
 void ShmTest::testAttachReadOnly() {
   unsigned char magicVal = 'd';
-  ShmSegmentOpts ropts{PageSizeT::NORMAL, true /* read Only */};
-  ropts.typeOpts = opts.typeOpts;
-  ShmSegmentOpts rwopts{PageSizeT::NORMAL, false /* read Only */};
-  rwopts.typeOpts = opts.typeOpts;
+  ShmSegmentOpts ropts{PageSizeT::NORMAL, opts.typeOpts, true /* read Only */};
+  ShmSegmentOpts rwopts{PageSizeT::NORMAL, opts.typeOpts};
 
   {
     // attaching to something that does not exist should fail in read only

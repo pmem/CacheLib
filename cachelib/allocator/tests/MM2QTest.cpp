@@ -606,6 +606,45 @@ TEST_F(MM2QTest, DeserializeToMoreLists) {
   ASSERT_EQ(numItemsWarm, c2.getEvictionAgeStat(0).warmQueueStat.size);
 }
 
+TEST_F(MM2QTest, QueueAges) {
+  MM2Q::Config config;
+  config.lruRefreshTime = 0;
+  config.coldSizePercent = 50;
+  config.hotSizePercent = 30;
+  const size_t numItems = 10;
+  const size_t numItemsCold = numItems * config.coldSizePercent / 100;
+  const size_t numItemsHot = numItems * config.hotSizePercent / 100;
+  const size_t numItemsWarm = numItems - numItemsCold - numItemsHot;
+  std::vector<std::unique_ptr<Node>> nodes;
+
+  Container c1(config, {});
+  for (uint32_t i = 0; i < numItems; i++) {
+    nodes.emplace_back(new Node{static_cast<int>(i)});
+    c1.add(*nodes[i]);
+    std::this_thread::sleep_for(std::chrono::seconds{1});
+  }
+  // nodes ordering:
+  //  hot: 9 -> 8 -> 7
+  //  warm: none
+  //  cold: 6 -> 5 -> 4 -> 3 -> 2 -> 1 -> 0
+  ASSERT_EQ(3, c1.getEvictionAgeStat(0).hotQueueStat.oldestElementAge);
+  ASSERT_EQ(0, c1.getEvictionAgeStat(0).warmQueueStat.oldestElementAge);
+  ASSERT_EQ(10, c1.getEvictionAgeStat(0).coldQueueStat.oldestElementAge);
+
+  for (uint32_t i = 0; i < numItemsWarm; i++) {
+    c1.recordAccess(*nodes[i], AccessMode::kRead);
+  }
+  // nodes ordering:
+  //  hot: 9 -> 8 -> 7
+  //  warm: 1 -> 0
+  //  cold: 6 -> 5 -> 4 -> 3 -> 2
+
+  ASSERT_EQ(3, c1.getEvictionAgeStat(0).hotQueueStat.oldestElementAge);
+  // warm-queue oldest element age is still 0 since it was just promoted
+  ASSERT_EQ(0, c1.getEvictionAgeStat(0).warmQueueStat.oldestElementAge);
+  ASSERT_EQ(8, c1.getEvictionAgeStat(0).coldQueueStat.oldestElementAge);
+}
+
 TEST_F(MM2QTest, TailTrackingEnabledCheck) {
   MM2Q::Config config;
 
@@ -628,7 +667,7 @@ TEST_F(MM2QTest, TailTrackingEnabledCheck) {
 
     // and serialization should preserve that
     auto serializedData = c1.saveState();
-    lrus = *serializedData.lrus_ref();
+    lrus = *serializedData.lrus();
     Container c2(serializedData, {});
     EXPECT_TRUE(c2.tailTrackingEnabled_);
 
@@ -639,10 +678,10 @@ TEST_F(MM2QTest, TailTrackingEnabledCheck) {
 
   {
     serialization::MM2QObject serializedData;
-    EXPECT_FALSE(*serializedData.tailTrackingEnabled_ref());
-    *serializedData.config_ref()->hotSizePercent_ref() = 10;
-    *serializedData.config_ref()->coldSizePercent_ref() = 20;
-    *serializedData.lrus_ref() = lrus;
+    EXPECT_FALSE(*serializedData.tailTrackingEnabled());
+    *serializedData.config()->hotSizePercent() = 10;
+    *serializedData.config()->coldSizePercent() = 20;
+    *serializedData.lrus() = lrus;
 
     // serialization object should by default have the flags dirty
     Container c(serializedData, {});

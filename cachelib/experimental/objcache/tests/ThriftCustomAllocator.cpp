@@ -36,19 +36,19 @@ TEST(ThriftCustomAllocator, Simple) {
     UseSimpleCustomAllocator useSimple1{TestAllocatorResource{"custom_alloc"}};
 
     // Just an integer. We don't need allocator.
-    useSimple1.m2_ref() = 12345;
+    useSimple1.m2() = 12345;
 
     // First create an entry with key "key-1" with default value.
     // Then, we std::move() "100" into value via move-assignment.
     //
     // However, move-assignment will FALL-BACK to copying, because
     // allocator "operator==" compares false.
-    useSimple1.m_ref().value()["key-1"] = "100";
+    useSimple1.m().value()["key-1"] = "100";
 
     // Move-construct a new entry with key "key-2" and value "200".
     // However, move-construct will fail because allocator does not
     // compare equal. And we will force a copy instead.
-    useSimple1.m_ref().value().insert(
+    useSimple1.m().value().insert(
         std::make_pair(TestString{"key-2"}, TestString{"200"}));
   }
 
@@ -60,10 +60,10 @@ TEST(ThriftCustomAllocator, Simple) {
     // Then, we std::move() "100" into value via move-assignment.
     //
     // Move works because allocator compares equal.
-    useSimple2.m_ref().value()["key-1"] = TestString{"100", myCustomAlloc};
+    useSimple2.m().value()["key-1"] = TestString{"100", myCustomAlloc};
 
     // Same here. Move works because allocator compares equal.
-    useSimple2.m_ref().value().insert(std::make_pair(
+    useSimple2.m().value().insert(std::make_pair(
         TestString{"key-2", myCustomAlloc}, TestString{"200", myCustomAlloc}));
   }
 }
@@ -83,12 +83,12 @@ TEST(ThriftCustomAllocator, Propagation) {
   EXPECT_EQ(0, alloc1.getNumAllocs());
   EXPECT_EQ(0, alloc2.getNumAllocs());
 
-  useSimple1.m_ref().value()[createStr("key-1")];
+  useSimple1.m().value()[createStr("key-1")];
   // One construction for the map entry, and a second one for the key.
   EXPECT_EQ(2, alloc1.getNumAllocs());
 
   // Move assignment with incompatible allocator
-  useSimple1.m_ref().value()[createStr("key-1")] =
+  useSimple1.m().value()[createStr("key-1")] =
       TestString{createStr("100"), alloc2};
   // Verify copying occured. One construction for the value and a second
   // construction to copy-assign into the entry.
@@ -96,7 +96,7 @@ TEST(ThriftCustomAllocator, Propagation) {
   EXPECT_EQ(1, alloc2.getNumAllocs());
 
   // Move assignment with compatible allocator
-  useSimple1.m_ref().value()[createStr("key-2")] =
+  useSimple1.m().value()[createStr("key-2")] =
       TestString{createStr("200"), alloc1};
   // Verifying moving occured One construction for the map entry, second one
   // for the key, and a third one for the value which is moved in.
@@ -104,7 +104,7 @@ TEST(ThriftCustomAllocator, Propagation) {
   EXPECT_EQ(1, alloc2.getNumAllocs());
 
   // Move construction with incompatible allocator
-  useSimple1.m_ref().value().insert(
+  useSimple1.m().value().insert(
       std::make_pair(TestString{createStr("key-3"), alloc2},
                      TestString{createStr("300"), alloc2}));
   // Verify copying occured. Three constructions from alloc1, one is for
@@ -114,7 +114,7 @@ TEST(ThriftCustomAllocator, Propagation) {
   EXPECT_EQ(3, alloc2.getNumAllocs());
 
   // Move construction with compatible allocator
-  useSimple1.m_ref().value().insert(
+  useSimple1.m().value().insert(
       std::make_pair(TestString{createStr("key-4"), alloc1},
                      TestString{createStr("400"), alloc1}));
   // Verify moving occured. Three constructions from alloc1, one is for
@@ -123,7 +123,7 @@ TEST(ThriftCustomAllocator, Propagation) {
   EXPECT_EQ(12, alloc1.getNumAllocs());
   EXPECT_EQ(3, alloc2.getNumAllocs());
 
-  for (auto itr : useSimple1.m_ref().value()) {
+  for (auto itr : useSimple1.m().value()) {
     EXPECT_TRUE(
         itr.first.get_allocator().getAllocatorResource().isEqual(alloc1));
     EXPECT_TRUE(
@@ -131,7 +131,7 @@ TEST(ThriftCustomAllocator, Propagation) {
   }
 
   UseSimpleCustomAllocator useSimple2{alloc2};
-  useSimple2.m_ref().value()[createStr("key-100")];
+  useSimple2.m().value()[createStr("key-100")];
   EXPECT_EQ(5, alloc2.getNumAllocs());
 
   // Copy-assignment will not propagate the allocator
@@ -152,9 +152,9 @@ TEST(ThriftCustomAllocator, Deserialization) {
   {
     TestAllocatorResource alloc{"alloc"};
     UseSimpleCustomAllocator useSimple1{alloc};
-    useSimple1.m2_ref() = 12345;
-    useSimple1.m_ref().value()["key-1"] = "100";
-    useSimple1.m_ref().value().insert(
+    useSimple1.m2() = 12345;
+    useSimple1.m().value()["key-1"] = "100";
+    useSimple1.m().value().insert(
         std::make_pair(TestString{"key-2"}, TestString{"200"}));
     numAllocs = alloc.getNumAllocs();
     iobuf = Serializer::serializeToIOBuf(useSimple1);
@@ -172,11 +172,11 @@ TEST(ThriftCustomAllocator, Deserialization) {
 TEST(ThriftCustomAllocator, UnionSimple) {
   {
     UnionWithCustomAllocator someUnion;
-    someUnion.set_m1({{1, "value-1"}, {2, "value-2"}});
+    someUnion.m1_ref() = {{1, "value-1"}, {2, "value-2"}};
     EXPECT_EQ("value-1", someUnion.get_m1().find(1)->second);
-    someUnion.set_m2("some string");
+    someUnion.m2_ref() = "some string";
     EXPECT_EQ("some string", someUnion.get_m2());
-    someUnion.set_m3(123);
+    someUnion.m3_ref() = 123;
     EXPECT_EQ(123, someUnion.get_m3());
   }
 
@@ -190,7 +190,7 @@ TEST(ThriftCustomAllocator, UnionSimple) {
     // 2 allocators for the two values
     EXPECT_EQ(4, alloc.getNumAllocs());
     // Copied over. So 4 more allocations were made
-    someUnion.set_m1(myMap);
+    someUnion.m1_ref() = myMap;
     EXPECT_EQ(myMap.get_allocator(), someUnion.get_m1().get_allocator());
     EXPECT_EQ(8, alloc.getNumAllocs());
   }
@@ -205,7 +205,7 @@ TEST(ThriftCustomAllocator, UnionSimple) {
     // 2 allocators for the two values
     EXPECT_EQ(4, alloc.getNumAllocs());
     // Moved over. So no extra allocations were made
-    someUnion.set_m1(std::move(myMap));
+    someUnion.m1_ref() = std::move(myMap);
     EXPECT_EQ(myMap.get_allocator(), someUnion.get_m1().get_allocator());
     EXPECT_EQ(4, alloc.getNumAllocs());
   }
@@ -220,7 +220,7 @@ TEST(ThriftCustomAllocator, UnionSimple) {
     // 2 allocators for the two values
     EXPECT_EQ(4, alloc.getNumAllocs());
     // Moved over. So no extra allocations were made
-    someUnion.set_m1(std::move(myMap));
+    someUnion.m1_ref() = std::move(myMap);
     EXPECT_EQ(myMap.get_allocator(), someUnion.get_m1().get_allocator());
     EXPECT_EQ(4, alloc.getNumAllocs());
 
@@ -246,11 +246,11 @@ TEST(ThriftCustomAllocator, TwoF14Maps) {
     EXPECT_EQ(0, myAlloc.getNumAllocs());
     auto allocs = myAlloc.getNumAllocs();
 
-    f14.m1_ref().value().insert(std::make_pair(123, 123));
+    f14.m1().value().insert(std::make_pair(123, 123));
     EXPECT_LT(allocs, myAlloc.getNumAllocs());
     allocs = myAlloc.getNumAllocs();
 
-    f14.m2_ref().value().insert(std::make_pair(123, 123.123));
+    f14.m2().value().insert(std::make_pair(123, 123.123));
     EXPECT_LT(allocs, myAlloc.getNumAllocs());
   }
 
@@ -260,11 +260,11 @@ TEST(ThriftCustomAllocator, TwoF14Maps) {
     EXPECT_EQ(0, myAlloc.getNumAllocs());
     auto allocs = myAlloc.getNumAllocs();
 
-    f14.m1_ref().value().insert(std::make_pair(123, 123));
+    f14.m1().value().insert(std::make_pair(123, 123));
     EXPECT_LT(allocs, myAlloc.getNumAllocs());
     allocs = myAlloc.getNumAllocs();
 
-    f14.m2_ref().value().insert(std::make_pair(123, 123.123));
+    f14.m2().value().insert(std::make_pair(123, 123.123));
     EXPECT_LT(allocs, myAlloc.getNumAllocs());
   }
 }

@@ -134,9 +134,9 @@ bool ShmManager::initFromFile() {
   }
 
   if (static_cast<bool>(usePosix_) ^
-      (*object.shmVal_ref() == static_cast<int8_t>(ShmVal::SHM_POSIX))) {
+      (*object.shmVal() == static_cast<int8_t>(ShmVal::SHM_POSIX))) {
     throw std::invalid_argument(folly::sformat(
-        "Invalid value for attach. ShmVal: {}", *object.shmVal_ref()));
+        "Invalid value for attach. ShmVal: {}", *object.shmVal()));
   }
 
   for (const auto& kv : *object.nameToKeyMap_ref()) {
@@ -170,8 +170,8 @@ typename ShmManager::ShutDownRes ShmManager::writeActiveSegmentsToFile() {
 
   serialization::ShmManagerObject object;
 
-  object.shmVal_ref() = usePosix_ ? static_cast<int>(ShmVal::SHM_POSIX)
-                                  : static_cast<int>(ShmVal::SHM_SYS_V);
+  object.shmVal() = usePosix_ ? static_cast<int8_t>(ShmVal::SHM_POSIX)
+                              : static_cast<int8_t>(ShmVal::SHM_SYS_V);
 
   for (const auto& kv : nameToOpts_) {
     const auto& name = kv.first;
@@ -190,7 +190,7 @@ typename ShmManager::ShutDownRes ShmManager::writeActiveSegmentsToFile() {
     const auto it = segments_.find(name);
     // segment exists and is active.
     if (it != segments_.end() && it->second->isActive()) {
-      object.nameToKeyMap_ref()[name] = key;
+      object.nameToKeyMap()[name] = key;
     }
   }
 
@@ -263,8 +263,7 @@ std::unique_ptr<ShmSegment> ShmManager::attachShmReadOnly(
     const std::string& name,
     ShmTypeOpts typeOpts,
     void* addr) {
-  ShmSegmentOpts opts{PageSizeT::NORMAL, true /* read only */};
-  opts.typeOpts = typeOpts;
+  ShmSegmentOpts opts{PageSizeT::NORMAL, typeOpts, true /* read only */};
   auto shm =
       std::make_unique<ShmSegment>(ShmAttach, uniqueIdForName(name, dir), opts);
   if (!shm->mapAddress(addr)) {
@@ -308,8 +307,6 @@ ShmAddr ShmManager::createShm(const std::string& shmName,
   // we are going to create a new segment most likely after trying to attach
   // to an old one. detach and remove any old ones if they have already been
   // attached or mapped
-  // TODO(SHM_FILE): should we try to remove the segment using all possible
-  // segment types?
   removeShm(shmName, opts.typeOpts);
 
   DCHECK(segments_.find(shmName) == segments_.end());

@@ -455,10 +455,13 @@ class MemoryAllocator {
   //
   // @param memory  the memory belonging to the slab allocator
   // @return        pair of poolId and classId of the memory
-  FOLLY_ALWAYS_INLINE AllocInfo
-  getAllocInfo(const void* memory) const noexcept {
+  // @throw std::invalid_argument if the memory doesn't belong to allocator
+  FOLLY_ALWAYS_INLINE AllocInfo getAllocInfo(const void* memory) const {
     const auto* header = slabAllocator_.getSlabHeader(memory);
-    XDCHECK(header) << "invalid header for slab memory addr: " << memory;
+    if (!header) {
+      throw std::invalid_argument(
+          fmt::format("invalid header for slab memory addr: {}", memory));
+    }
     return AllocInfo{header->poolId, header->classId, header->allocSize};
   }
 
@@ -562,8 +565,13 @@ class MemoryAllocator {
   // irrespective of whether the slab is allocated for free.
   //
   // @param callback   Callback to be executed on each allocation
+  // @return           The number of slabs skipped
+  //                   Slab can be skipped because it is being released or
+  //                   already released but not yet assigned to another pool or
+  //                   allocation class.
   template <typename AllocTraversalFn>
-  void forEachAllocation(AllocTraversalFn&& callback) {
+  uint64_t forEachAllocation(AllocTraversalFn&& callback) {
+    uint64_t slabSkipped = 0;
     for (unsigned int idx = 0; idx < slabAllocator_.getNumUsableSlabs();
          ++idx) {
       Slab* slab = slabAllocator_.getSlabForIdx(idx);
@@ -575,14 +583,20 @@ class MemoryAllocator {
       auto poolId = slabHdr->poolId;
       if (poolId == Slab::kInvalidPoolId || classId == Slab::kInvalidClassId ||
           slabHdr->isAdvised() || slabHdr->isMarkedForRelease()) {
+        ++slabSkipped;
         continue;
       }
       auto& pool = memoryPoolManager_.getPoolById(poolId);
-      if (!pool.forEachAllocation(
-              classId, slab, std::forward<AllocTraversalFn>(callback))) {
-        return;
+      auto slabIterationStatus = pool.forEachAllocation(
+          classId, slab, std::forward<AllocTraversalFn>(callback));
+      if (slabIterationStatus ==
+          SlabIterationStatus::kSkippedCurrentSlabAndContinue) {
+        ++slabSkipped;
+      } else if (slabIterationStatus == SlabIterationStatus::kAbortIteration) {
+        return slabSkipped;
       }
     }
+    return slabSkipped;
   }
 
   // returns a default set of allocation sizes with given size range and factor.

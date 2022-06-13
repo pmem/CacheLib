@@ -7,8 +7,15 @@
  * @format
  */
 
+// start-import-example
+const {fbContent, fbInternalOnly} = require('internaldocs-fb-helpers');
+// end-import-example
+
 module.exports = {
-  title: 'CacheLib',
+  title: fbContent({
+    internal: 'CacheLib (Internal)',
+    external: 'CacheLib',
+  }),
   tagline: 'Pluggable caching engine to build and scale high performance cache services',
   favicon: 'img/favicon.ico',
 
@@ -20,8 +27,36 @@ module.exports = {
   organizationName: 'facebook', // Usually your GitHub org/user name.
   projectName: 'CacheLib', // Usually your repo name.
 
+  onBrokenLinks: 'log',
+
 
   themeConfig: {
+    announcementBar: {
+      id: 'support_ukraine',
+      content:
+        'Support Ukraine 🇺🇦 <a target="_blank" rel="noopener noreferrer" href="https://opensource.fb.com/support-ukraine"> Help Provide Humanitarian Aid to Ukraine</a>.',
+      backgroundColor: '#20232a',
+      textColor: '#fff',
+      isCloseable: false,
+    },
+    algolia:  fbContent({
+      internal: undefined,
+      external:{
+        // If Algolia did not provide you any appId, use 'BH4D9OD16A'
+        appId: 'BH4D9OD16A',
+
+        // Public API key: it is safe to commit it
+        apiKey: 'bb92084c062a63740851123e7f3f4d26',
+
+        indexName: 'cachelib',
+
+        // Optional: see doc section below
+        contextualSearch: true,
+
+        // Optional: Algolia search parameters
+        searchParameters: {},
+       },
+     }),
     image: 'img/CacheLib-Logo-small.png',
     navbar: {
       title: 'CacheLib',
@@ -49,11 +84,23 @@ module.exports = {
           position: 'left',
         },
         {
-          to: 'learnmore', // temporarily redirect here until we add docs.
-          activeBasePath: 'learnmore',
+          to: 'docs/Cache_Library_Architecture_Guide/overview_a_random_walk',
+          activeBasePath: 'docs',
           label: 'Architecture Guide',
           position: 'left',
         },
+        fbContent({
+           internal: {
+                        to: 'docs/facebook/Cache_Monitoring/Cache_Admin_Overview',
+                        activeBasePath: 'docs',
+                        label: 'Internals',
+                        position: 'left',
+                     },
+           external: {
+			href: '/',
+                        label: '\u200C', // Zero width non-joiner unicode character
+                     },
+        }),
         {
           to: 'learnmore/',
           activeBasePath: 'learnmore',
@@ -89,7 +136,7 @@ module.exports = {
             },
             {
               label: 'Twitter',
-              href: 'https://twitter.com/FBOpenSource',
+              href: 'https://twitter.com/MetaOpenSource',
             },
           ],
         },
@@ -129,23 +176,35 @@ module.exports = {
         href: 'https://opensource.facebook.com',
       },
       // Please do not remove the credits, help to publicize Docusaurus :)
-      copyright: `Copyright © ${new Date().getFullYear()} Facebook, Inc. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Meta Platforms, Inc. Built with Docusaurus.`,
     },
   },
   presets: [
     [
-      '@docusaurus/preset-classic',
+      require.resolve('docusaurus-plugin-internaldocs-fb/docusaurus-preset'),
       {
         docs: {
           sidebarPath: require.resolve('./sidebars.js'),
           // Please change this to your repo.
-          editUrl:
-            'https://github.com/facebook/docusaurus/edit/master/website/',
+          editUrl: fbContent({
+            internal: 'https://www.internalfb.com/code/fbsource/fbcode/cachelib/public_tld/website/',
+            external: 'https://github.com/facebook/CacheLib/edit/main/website/',
+          }),
         },
         theme: {
           customCss: require.resolve('./src/css/custom.css'),
         },
+        staticDocsProject: 'cachelib',
+        trackingFile: 'cachelib/staticdocs/WATCHED_FILES',
+        enableEditor: true,
+        'remark-code-snippets': {
+          baseDir: '..',
+        },
       },
     ],
   ],
+  customFields: {
+    fbRepoName: 'fbsource',
+    ossRepoPath: 'xplat/sonar',
+  },
 };

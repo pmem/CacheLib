@@ -64,7 +64,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
     allocatorConfig_.enableMovingOnSlabRelease(
         [](Item& oldItem, Item& newItem, Item* parentPtr) {
           XDCHECK(oldItem.isChainedItem() == (parentPtr != nullptr));
-          std::memcpy(newItem.getWritableMemory(), oldItem.getMemory(),
+          std::memcpy(newItem.getMemory(), oldItem.getMemory(),
                       oldItem.getSize());
         },
         movingSync);
@@ -101,8 +101,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   });
 
   if (config_.enableItemDestructorCheck) {
-    // TODO (zixuan) use ItemDestructor once feature is finished
-    auto removeCB = [&](const typename Allocator::RemoveCbData& data) {
+    auto removeCB = [&](const typename Allocator::DestructorData& data) {
       if (!itemRecords_.validate(data)) {
         ++invalidDestructor_;
       }
@@ -110,11 +109,10 @@ Cache<Allocator>::Cache(const CacheConfig& config,
       // size of itemRecords_ (also is the number of new allocations)
       ++totalDestructor_;
     };
-    allocatorConfig_.setRemoveCallback(removeCB);
+    allocatorConfig_.setItemDestructor(removeCB);
   } else if (config_.enableItemDestructor) {
-    // TODO (zixuan) use ItemDestructor once feature is finished
-    auto removeCB = [&](const typename Allocator::RemoveCbData&) {};
-    allocatorConfig_.setRemoveCallback(removeCB);
+    auto removeCB = [&](const typename Allocator::DestructorData&) {};
+    allocatorConfig_.setItemDestructor(removeCB);
   }
 
   // Set up Navy
@@ -158,18 +156,8 @@ Cache<Allocator>::Cache(const CacheConfig& config,
     // configure BlockCache
     auto& bcConfig = nvmConfig.navyConfig.blockCache()
                          .setDataChecksum(config_.navyDataChecksum)
-                         .setCleanRegions(config_.navyCleanRegions,
-                                          false /*enable in-mem buffer*/)
+                         .setCleanRegions(config_.navyCleanRegions)
                          .setRegionSize(config_.navyRegionSizeMB * MB);
-
-    // We have to use the old API to separately set the in-mem buffer
-    // due to T102105644
-    // TODO: cleanup the old API after we understand why 2*cleanRegions will
-    // cause cogwheel tests issue
-    if (config_.navyNumInmemBuffers > 0) {
-      nvmConfig.navyConfig.setBlockCacheNumInMemBuffers(
-          config_.navyNumInmemBuffers);
-    }
 
     // by default lru. if more than one fifo ratio is present, we use
     // segmented fifo. otherwise, simple fifo.
@@ -179,10 +167,6 @@ Cache<Allocator>::Cache(const CacheConfig& config,
       } else {
         bcConfig.enableSegmentedFifo(config_.navySegmentedFifoSegmentRatio);
       }
-    }
-
-    if (!config_.navySizeClasses.empty()) {
-      bcConfig.useSizeClasses(config_.navySizeClasses);
     }
 
     if (config_.navyHitsReinsertionThreshold > 0) {
@@ -228,8 +212,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
     if (config_.navyEncryption && config_.createEncryptor) {
       allocatorConfig_.enableNvmCacheEncryption(config_.createEncryptor());
     }
-    if (!config_.mlNvmAdmissionPolicy.empty() &&
-        config_.nvmAdmissionPolicyFactory) {
+    if (config_.nvmAdmissionPolicyFactory) {
       try {
         nvmAdmissionPolicy_ =
             std::any_cast<std::shared_ptr<NvmAdmissionPolicy<Allocator>>>(
@@ -351,7 +334,7 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::allocateChainedItem(
     const ItemHandle& parent, size_t size) {
   auto handle = cache_->allocateChainedItem(parent, CacheValue::getSize(size));
   if (handle) {
-    CacheValue::initialize(handle->getWritableMemory());
+    CacheValue::initialize(handle->getMemory());
   }
   return handle;
 }
@@ -385,7 +368,7 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::allocate(
   try {
     handle = cache_->allocate(pid, key, CacheValue::getSize(size), ttlSecs);
     if (handle) {
-      CacheValue::initialize(handle->getWritableMemory());
+      CacheValue::initialize(handle->getMemory());
     }
   } catch (const std::invalid_argument& e) {
     XLOGF(DBG, "Unable to allocate, reason: {}", e.what());
@@ -422,7 +405,7 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
       tracker = util::LatencyTracker(cacheFindLatency_);
     }
     // find from cache and wait for the result to be ready.
-    auto it = cache_->find(key, mode);
+    auto it = cache_->findImpl(key, mode);
     it.wait();
     return it;
   };
@@ -479,6 +462,7 @@ Stats Cache<Allocator>::getStats() const {
 
   ret.numCacheGets = cacheStats.numCacheGets;
   ret.numCacheGetMiss = cacheStats.numCacheGetMiss;
+  ret.numRamDestructorCalls = cacheStats.numRamDestructorCalls;
   ret.numNvmGets = cacheStats.numNvmGets;
   ret.numNvmGetMiss = cacheStats.numNvmGetMiss;
   ret.numNvmGetCoalesced = cacheStats.numNvmGetCoalesced;
@@ -493,6 +477,7 @@ Stats Cache<Allocator>::getStats() const {
   ret.numNvmUncleanEvict = cacheStats.numNvmUncleanEvict;
   ret.numNvmCleanEvict = cacheStats.numNvmCleanEvict;
   ret.numNvmCleanDoubleEvict = cacheStats.numNvmCleanDoubleEvict;
+  ret.numNvmDestructorCalls = cacheStats.numNvmDestructorCalls;
   ret.numNvmEvictions = cacheStats.numNvmEvictions;
 
   ret.numNvmDeletes = cacheStats.numNvmDeletes;
@@ -500,6 +485,7 @@ Stats Cache<Allocator>::getStats() const {
 
   ret.slabsReleased = rebalanceStats.numSlabReleaseForRebalance;
   ret.numAbortedSlabReleases = cacheStats.numAbortedSlabReleases;
+  ret.numSkippedSlabReleases = cacheStats.numSkippedSlabReleases;
   ret.moveAttemptsForSlabRelease = rebalanceStats.numMoveAttempts;
   ret.moveSuccessesForSlabRelease = rebalanceStats.numMoveSuccesses;
   ret.evictionAttemptsForSlabRelease = rebalanceStats.numEvictionAttempts;
@@ -558,6 +544,7 @@ Stats Cache<Allocator>::getStats() const {
     ret.nvmWriteLatencyMicrosP999999 =
         lookup("navy_device_write_latency_us_p999999");
     ret.nvmWriteLatencyMicrosP100 = lookup("navy_device_write_latency_us_p100");
+    ret.numNvmItemRemovedSetSize = lookup("items_tracked_for_destructor");
 
     // track any non-zero check sum errors or io errors
     for (const auto& [k, v] : navyStats) {
@@ -572,7 +559,17 @@ Stats Cache<Allocator>::getStats() const {
 }
 
 template <typename Allocator>
-void Cache<Allocator>::clearCache() {
+bool Cache<Allocator>::hasNvmCacheWarmedUp() const {
+  const auto& nvmStats = cache_->getNvmCacheStatsMap();
+  const auto it = nvmStats.find("navy_bc_evicted");
+  if (it == nvmStats.end()) {
+    return false;
+  }
+  return it->second > 0;
+}
+
+template <typename Allocator>
+void Cache<Allocator>::clearCache(uint64_t errorLimit) {
   if (config_.enableItemDestructorCheck) {
     // all items leftover in the cache must be removed
     // at the end of the test to trigger ItemDestrutor
@@ -584,6 +581,7 @@ void Cache<Allocator>::clearCache() {
       cache_->remove(key);
     }
     cache_->flushNvmCache();
+    itemRecords_.findUndestructedItem(std::cout, errorLimit);
   }
 }
 
@@ -616,14 +614,14 @@ void Cache<Allocator>::trackChainChecksum(const ItemHandle& handle) {
 template <typename Allocator>
 void Cache<Allocator>::setUint64ToItem(ItemHandle& handle, uint64_t num) const {
   XDCHECK(handle);
-  auto ptr = handle->template getWritableMemoryAs<CacheValue>();
+  auto ptr = handle->template getMemoryAs<CacheValue>();
   ptr->setConsistencyNum(num);
 }
 
 template <typename Allocator>
 void Cache<Allocator>::setStringItem(ItemHandle& handle,
-                                     const std::string& str) const {
-  auto ptr = reinterpret_cast<uint8_t*>(getWritableMemory(handle));
+                                     const std::string& str) {
+  auto ptr = reinterpret_cast<uint8_t*>(getMemory(handle));
   std::memcpy(ptr, str.data(), std::min<size_t>(str.size(), getSize(handle)));
 }
 

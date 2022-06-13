@@ -1,5 +1,5 @@
 {
-  "name": "my-website",
+  "name": "cachelib",
   "version": "0.0.0",
   "private": true,
   "scripts": {
@@ -16,13 +16,16 @@
     "prettier:diff": "prettier --config .prettierrc --list-different \"**/*.{js,md}\""
   },
   "dependencies": {
-    "@docusaurus/core": "^2.0.0-beta.4",
-    "@docusaurus/preset-classic": "^2.0.0-beta.4",
-    "@mdx-js/react": "^1.6.21",
-    "clsx": "^1.1.1",
-    "docusaurus-plugin-internaldocs-fb": "^0.5.7",
-    "react": "^16.8.4",
-    "react-dom": "^16.8.4"
+    "@docusaurus/core": "=2.0.0-beta.6",
+    "@docusaurus/plugin-content-docs": "=2.0.0-beta.6",
+    "@docusaurus/preset-classic": "=2.0.0-beta.6",
+    "@docusaurus/theme-classic": "=2.0.0-beta.6",
+    "@docusaurus/theme-common": "=2.0.0-beta.6",
+    "@docusaurus/theme-search-algolia": "=2.0.0-beta.6",
+    "docusaurus-plugin-internaldocs-fb": "^0.10.7",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
+    "typescript": "^4.5.2"
   },
   "devDependencies": {
     "babel-eslint": "^10.0.3",
@@ -36,6 +39,9 @@
     "eslint-plugin-react-hooks": "^4.0.4",
     "prettier": "^2.0.2",
     "stylelint": "^13.2.1"
+  },
+  "resolutions": {
+    "ansi-html": "0.0.8"
   },
   "browserslist": {
     "production": [

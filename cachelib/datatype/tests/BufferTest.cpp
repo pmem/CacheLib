@@ -314,12 +314,12 @@ class BufferManagerTest : public ::testing::Test {
 
     auto item1 = cache->allocateChainedItem(parent, 1);
     ASSERT_NE(nullptr, item1);
-    std::memcpy(item1->getWritableMemory(), data.data(), 1);
+    std::memcpy(item1->getMemory(), data.data(), 1);
     cache->addChainedItem(parent, std::move(item1));
 
     auto item2 = cache->allocateChainedItem(parent, 2);
     ASSERT_NE(nullptr, item2);
-    std::memcpy(item2->getWritableMemory(), data.data() + 1, 2);
+    std::memcpy(item2->getMemory(), data.data() + 1, 2);
     cache->addChainedItem(parent, std::move(item2));
 
     using BufferManager = detail::BufferManager<AllocatorT>;
@@ -369,7 +369,7 @@ class BufferManagerTest : public ::testing::Test {
     }
     {
       // Allocate all memory so buffer manager creation will fail
-      std::vector<typename AllocatorT::ItemHandle> handles;
+      std::vector<typename AllocatorT::WriteHandle> handles;
       for (int i = 0;; i++) {
         auto handle = cache->allocate(pid,
                                       folly::sformat("key_{}", i),

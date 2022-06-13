@@ -23,6 +23,7 @@
 #include <ostream>
 
 #include "cachelib/navy/common/Buffer.h"
+#include "cachelib/navy/common/Hash.h"
 
 namespace facebook {
 namespace cachelib {
@@ -48,13 +49,17 @@ enum class Status {
 };
 
 enum class DestructorEvent {
+  // space is recycled (item evicted)
   Recycled,
+  // item is removed from NVM
   Removed,
+  // item already in the queue but failed to put into NVM
+  PutFailed,
 };
 
 // @key and @value are valid only during this callback invocation
-using DestructorCallback = std::function<void(
-    BufferView key, BufferView value, DestructorEvent event)>;
+using DestructorCallback =
+    std::function<void(HashedKey hk, BufferView value, DestructorEvent event)>;
 
 // Export counters by visiting them in the object hierarchy
 using CounterVisitor =

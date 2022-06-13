@@ -7,7 +7,7 @@ After [setting up your cache](Set_up_a_simple_cache), you can start writing data
 
 To use cachelib to write data to your cache:
 
-- Allocate memory for the data from the cache, which will return an item handle to the allocated memory. Item handle provides a reference counted wrapper to access a cache item.
+- Allocate memory for the data from the cache, which will return an item's `WriteHandle` to the allocated memory. Item handle provides a reference counted wrapper to access a cache item.
 - Write the data to the allocated memory and insert the item handle into the cache.
 
 ## Allocate memory for data from cache
@@ -20,7 +20,7 @@ template <typename CacheTrait>;
 class CacheAllocator : public CacheBase {
   public:
     // Allocate memory of a specific size from cache.
-    ItemHandle allocate(
+    WriteHandle allocate(
       PoolId id,
       Key key,
       uint32_t size,
@@ -29,7 +29,7 @@ class CacheAllocator : public CacheBase {
     );
 
     // Allocate memory for a chained item of a specific size from cache.
-    ItemHandle allocateChainedItem(const ItemHandle& parent, uint32_t size);
+    WriteHandle allocateChainedItem(const ReadHandle& parent, uint32_t size);
   // ...
 };
 ```
@@ -39,48 +39,51 @@ For example:
 
 
 ```cpp
-auto pool_id = cache->addPool(
+auto poolId = cache->addPool(
   "default_pool",
   cache->getCacheMemoryStats().cacheSize
 );
-ItemHandle item_handle = cache->allocate(pool_id, "key1", 1024);
+WriteHandle handle = cache->allocate(poolId, "key1", 1024);
 ```
 
 
 where:
 - `cache` is a `unique_ptr` to `CacheAllocator<facebook::cachelib::LruAllocator>` (see [Set up a simple dram cache](Set_up_a_simple_cache)).
-- `ItemHandle` is a `CacheItem<facebook::cachelib::LruAllocator>::Handle` (see allocator/CacheItem.h), which is `facebook::cachelib::detail::HandleImpl` defined in allocator/Handle.h. If allocation failed, an empty handle will be returned.
+- `WriteHandle` is a `CacheItem<facebook::cachelib::LruAllocator>::WriteHandle` (see allocator/CacheItem.h), which is `facebook::cachelib::detail::WriteHandleImpl` defined in allocator/Handle.h. If allocation failed, an empty handle will be returned.
 
-To get the writable memory from the allocated memory, call the `getMemory` method via the item handle:
+To get the writable memory from the allocated memory, call the `getMemory` method via the `WriteHandle`:
 
 
 ```cpp
-if (item_handle) {
-  void* pwm = item_handle->getMemory();
+if (handle) {
+  void* pwm = handle->getMemory();
 }
 ```
-
+where `handle` is of type `WriteHandle`.
 
 If the data size is greater than the maximum slab size (4 MB), use [chained items](chained_items) to store the data with multiple items. To allocate memory for additional chained items from cache, call this method:
 
 
 ```cpp
-ItemHandle allocateChainedItem(const ItemHandle& parent, uint32_t size);
+WriteHandle allocateChainedItem(const ReadHandle& parent, uint32_t size);
 ```
-
+where:
+- `ReadHandle` is a `CacheItem<facebook::cachelib::LruAllocator>::ReadHandle` (see allocator/CacheItem.h), which is `facebook::cachelib::detail::ReadHandleImpl` defined in allocator/Handle.h.
 
 For example:
 
 
 ```cpp
 size_t size = 1024 * 1024;
-auto parent_item_handle = cache->allocate(pool_id, "parent", size);
+auto parentItemHandle = cache->allocate(poolId, "parent", size);
 
-if (parent_item_handle) {
+if (parentItemHandle) {
   // Call allocateChainedItem() to allocate memory for 3 chained items.
-  auto chained_item_handle_1 = cache->allocateChainedItem(parent_item_handle, 2 * size);
-  auto chained_item_handle_2 = cache->allocateChainedItem(parent_item_handle, 4 * size);
-  auto chained_item_handle_3 = cache->allocateChainedItem(parent_item_handle, 6 * size);
+  // 4 * size is invalid, Because there are other costs, see getRequiredSize().
+  // But you can create more chained items.
+  auto chainedItemHandle1 = cache->allocateChainedItem(parentItemHandle, 1 * size);
+  auto chainedItemHandle2 = cache->allocateChainedItem(parentItemHandle, 2 * size);
+  auto chainedItemHandle3 = cache->allocateChainedItem(parentItemHandle, 3 * size);
 }
 ```
 
@@ -100,12 +103,13 @@ void* memcpy(void* destination, const void* source, size_t num);
 ```
 
 
-To get the destination address, call the `getMemory()` method via the `ItemHandle`:
+To get the destination address, call the `getMemory()` method via the `WriteHandle`:
 
 
 ```cpp
-void* pwm = item_handle->getMemory();
+void* pwm = handle->getMemory();
 ```
+where `handle` is of type `WriteHandle`.
 
 
 To insert an item to the cache, call one of the following methods defined in
@@ -117,13 +121,13 @@ template <typename CacheTrait>
 class CacheAllocator : public CacheBase {
   public:
     // will fail insertion if key is already present
-    bool insert(const ItemHandle& handle);
+    bool insert(const WriteHandle& handle);
 
-    // will insert or replace existing item for the key
-    ItemHandle insertOrReplace(const ItemHandle& handle);
+    // will insert or replace existing item for the key and return the handle of the replaced old item
+    WriteHandle insertOrReplace(const WriteHandle& handle);
 
     // link the chained items to the parent
-    void addChainedItem(const ItemHandle& parent, ItemHandle child);
+    void addChainedItem(const WriteHandle& parent, WriteHandle child);
   // ...
 };
 ```
@@ -136,14 +140,14 @@ For example, the following code writes *new* data (i.e., data associated with a 
 string data("Hello world");
 
 // Allocate memory for the data.
-auto item_handle = cache->allocate(pool_id, "key1", data.size());
+auto handle = cache->allocate(pool_id, "key1", data.size());
 
-if (item_handle) {
+if (handle) {
   // Write the data to the allocated memory.
-  std::memcpy(item_handle->getMemory(), data.data(), data.size());
+  std::memcpy(handle->getMemory(), data.data(), data.size());
 
   // Insert the item handle into the cache.
-  cache->insertOrReplace(item_handle);
+  cache->insertOrReplace(handle);
 } else {
   // handle allocation failure
 }
@@ -156,23 +160,23 @@ And the following code writes *new* data (i.e., data associated with a new key) 
 ```cpp
 string data("new data");
 // Allocate memory for the data.
-auto item_handle = cache->allocate(pool_id, "key2", data.size());
+auto handle = cache->allocate(pool_id, "key2", data.size());
 
 // Write the data to the cache.
 std::memcpy(handle->getMemory(), data.data(), data.size());
 
 // Insert the item handle into the cache.
-cache->insertOrReplace(item_handle);
+cache->insertOrReplace(handle);
 
 data = "Repalce the data associated with key key1";
 // Allocate memory for the replacement data.
-item_handle = cache->allocate(pool_id, "key1", data.size());
+handle = cache->allocate(pool_id, "key1", data.size());
 
 // Write the replacement data to the cache.
-std::memcpy(item_handle->getMemory(), data.data(), data.size());
+std::memcpy(handle->getMemory(), data.data(), data.size());
 
 // Insert the item handle into the cache.
-cache->insertOrReplace(item_handle);
+cache->insertOrReplace(handle);
 ```
 
 
@@ -185,22 +189,22 @@ For example:
 
 
 ```cpp
-std::vector<std::string> chained_items = { "item 1", "item 2", "item 3" };
+std::vector<std::string> chainedItems = { "item 1", "item 2", "item 3" };
 
-for (auto itr = chained_items.begin(); itr != chained_items.end(); ++itr) {
+for (auto itr = chainedItems.begin(); itr != chainedItems.end(); ++itr) {
   // Allocate memory for the chained item.
-  auto item_handle = cache->allocateChainedItem(parent_handle, size);
+  auto chainedItemHandle = cache->allocateChainedItem(parentHandle, size);
 
-  if (!item_handle) {
+  if (!chainedItemHandle) {
     // failed to allocate for the chained item.
     throw "error";
   }
 
   // Write data to the chained item.
-  std::memcpy(item_handle->getMemory(), itr->data(), itr->size());
+  std::memcpy(chainedItemHandle->getMemory(), itr->data(), itr->size());
 
   // Add the chained item to the parent item.
-  cache->addChainedItem(parent_handle, std::move(item_handle));
+  cache->addChainedItem(parentItemHandle, std::move(chainedItemHandle));
 }
 ```
 

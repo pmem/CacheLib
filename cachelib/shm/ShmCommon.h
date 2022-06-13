@@ -15,6 +15,9 @@
  */
 
 #pragma once
+#include <sys/ipc.h>
+#include <sys/mman.h>
+#include <sys/shm.h>
 #include <sys/stat.h>
 
 #include <system_error>
@@ -27,6 +30,36 @@
 #include <folly/Format.h>
 #include <folly/Range.h>
 #pragma GCC diagnostic pop
+
+/* On Mac OS / FreeBSD, mmap(2) syscall does not support these flags */
+#ifndef MAP_LOCKED
+#define MAP_LOCKED 0
+#endif
+
+#if !(defined MAP_HUGE_SHIFT) || !(defined MAP_HUGETLB)
+#define MAP_HUGE_SHIFT 0
+#define MAP_HUGETLB 0
+#define MAP_HUGE_2MB 0
+#define MAP_HUGE_1GB 0
+#endif
+
+#ifndef SHM_HUGETLB
+#define SHM_HUGE_2MB 0
+#define SHM_HUGE_1GB 0
+#define SHM_HUGETLB 0
+#endif
+
+#ifndef SHM_HUGE_SHIFT
+#define SHM_HUGE_SHIFT 0
+#endif
+
+#ifndef SHM_LOCK
+#define SHM_LOCK 0
+#endif
+
+#ifndef SHM_REMAP
+#define SHM_REMAP 0
+#endif
 
 namespace facebook {
 namespace cachelib {
@@ -61,13 +94,8 @@ struct ShmSegmentOpts {
   bool readOnly{false};
   size_t alignment{1};    // alignment for mapping.
   ShmTypeOpts typeOpts{}; // opts specific to segment type
-
-  explicit ShmSegmentOpts(PageSizeT p) : pageSize(p) {}
-  explicit ShmSegmentOpts(PageSizeT p, bool ro) : pageSize(p), readOnly(ro) {}
-  explicit ShmSegmentOpts(PageSizeT p, bool ro, const std::string& path)
-      : pageSize(p), readOnly(ro), typeOpts(path) {}
-  explicit ShmSegmentOpts(PageSizeT p, bool ro, bool posix)
-      : pageSize(p), readOnly(ro), typeOpts(posix) {}
+  explicit ShmSegmentOpts(PageSizeT p, ShmTypeOpts opts, bool ro = false)
+      : pageSize(p), typeOpts(opts), readOnly(ro) {}
   ShmSegmentOpts() : pageSize(PageSizeT::NORMAL) {}
 };
 

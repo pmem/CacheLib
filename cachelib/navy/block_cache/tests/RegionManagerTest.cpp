@@ -53,14 +53,13 @@ TEST(RegionManager, ReclaimLruAsFifo) {
   constexpr uint32_t kRegionSize = 4 * 1024;
   auto device =
       createMemoryDevice(kNumRegions * kRegionSize, nullptr /* encryption */);
-  std::vector<uint32_t> sizeClasses{4096};
-  RegionEvictCallback evictCb{[](RegionId, uint32_t, BufferView) { return 0; }};
-  RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+  RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+  RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
   MockJobScheduler ex;
   auto rm = std::make_unique<RegionManager>(
       kNumRegions, kRegionSize, 0, *device, 1, ex, std::move(evictCb),
-      std::move(cleanupCb), sizeClasses, std::move(policy), 0, 0,
-      kFlushRetryLimit);
+      std::move(cleanupCb), std::move(policy),
+      kNumRegions /* numInMemBuffers */, 0, kFlushRetryLimit);
 
   // without touch, the first region inserted is reclaimed
   EXPECT_EQ(kRegion0.id(), rm->evict());
@@ -81,14 +80,13 @@ TEST(RegionManager, ReclaimLru) {
   constexpr uint32_t kRegionSize = 4 * 1024;
   auto device =
       createMemoryDevice(kNumRegions * kRegionSize, nullptr /* encryption */);
-  std::vector<uint32_t> sizeClasses{4096};
-  RegionEvictCallback evictCb{[](RegionId, uint32_t, BufferView) { return 0; }};
-  RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+  RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+  RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
   MockJobScheduler ex;
   auto rm = std::make_unique<RegionManager>(
       kNumRegions, kRegionSize, 0, *device, 1, ex, std::move(evictCb),
-      std::move(cleanupCb), sizeClasses, std::move(policy), 0, 0,
-      kFlushRetryLimit);
+      std::move(cleanupCb), std::move(policy),
+      kNumRegions /* numInMemBuffers */, 0, kFlushRetryLimit);
 
   rm->touch(kRegion0.id());
   rm->touch(kRegion1.id());
@@ -110,24 +108,19 @@ TEST(RegionManager, Recovery) {
     std::vector<uint32_t> hits(4);
     auto policy = std::make_unique<MockPolicy>(&hits);
     expectRegionsTracked(*policy, {0, 1, 2, 3});
-    std::vector<uint32_t> sizeClasses{4096};
-    RegionEvictCallback evictCb{
-        [](RegionId, uint32_t, BufferView) { return 0; }};
-    RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+    RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+    RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
     MockJobScheduler ex;
     auto rm = std::make_unique<RegionManager>(
         kNumRegions, kRegionSize, 0, *device, 1, ex, std::move(evictCb),
-        std::move(cleanupCb), sizeClasses, std::move(policy), 0, 0,
-        kFlushRetryLimit);
+        std::move(cleanupCb), std::move(policy),
+        kNumRegions /* numInMemBuffers */, 0, kFlushRetryLimit);
 
     // Empty region, like it was evicted and reclaimed
-    rm->getRegion(RegionId{0}).setClassId(0);
-    rm->getRegion(RegionId{1}).setClassId(0);
     for (int i = 0; i < 20; i++) {
       auto [desc, addr] = rm->getRegion(RegionId{1}).openAndAllocate(101);
       rm->getRegion(RegionId{1}).close(std::move(desc));
     }
-    rm->getRegion(RegionId{2}).setClassId(1);
     for (int i = 0; i < 30; i++) {
       auto [desc, addr] = rm->getRegion(RegionId{2}).openAndAllocate(101);
       rm->getRegion(RegionId{2}).close(std::move(desc));
@@ -152,33 +145,27 @@ TEST(RegionManager, Recovery) {
       expectRegionsTracked(*policy, {0, 3, 1, 2});
     }
 
-    std::vector<uint32_t> sizeClasses{4096};
-    RegionEvictCallback evictCb{
-        [](RegionId, uint32_t, BufferView) { return 0; }};
-    RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+    RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+    RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
     MockJobScheduler ex;
     auto rm = std::make_unique<RegionManager>(
         kNumRegions, kRegionSize, 0, *device, 1, ex, std::move(evictCb),
-        std::move(cleanupCb), sizeClasses, std::move(policy), 0, 0,
-        kFlushRetryLimit);
+        std::move(cleanupCb), std::move(policy),
+        kNumRegions /* numInMemBuffers */, 0, kFlushRetryLimit);
 
     auto rr = createMemoryRecordReader(ioq);
     rm->recover(*rr);
 
-    EXPECT_EQ(0, rm->getRegion(RegionId{0}).getClassId());
     EXPECT_EQ(0, rm->getRegion(RegionId{0}).getLastEntryEndOffset());
     EXPECT_EQ(0, rm->getRegion(RegionId{0}).getNumItems());
 
-    EXPECT_EQ(0, rm->getRegion(RegionId{1}).getClassId());
     EXPECT_EQ(2020, rm->getRegion(RegionId{1}).getLastEntryEndOffset());
     EXPECT_EQ(20, rm->getRegion(RegionId{1}).getNumItems());
 
-    EXPECT_EQ(1, rm->getRegion(RegionId{2}).getClassId());
     EXPECT_EQ(3030, rm->getRegion(RegionId{2}).getLastEntryEndOffset());
     EXPECT_EQ(30, rm->getRegion(RegionId{2}).getNumItems());
 
     // this is a region that was not assigned to anything.
-    EXPECT_EQ(Region::kClassIdMax, rm->getRegion(RegionId{3}).getClassId());
     EXPECT_EQ(0, rm->getRegion(RegionId{3}).getLastEntryEndOffset());
     EXPECT_EQ(0, rm->getRegion(RegionId{3}).getNumItems());
   }
@@ -192,14 +179,13 @@ TEST(RegionManager, ReadWrite) {
   auto device = createMemoryDevice(kBaseOffset + kNumRegions * kRegionSize,
                                    nullptr /* encryption */);
   auto devicePtr = device.get();
-  std::vector<uint32_t> sizeClasses{4096};
-  RegionEvictCallback evictCb{[](RegionId, uint32_t, BufferView) { return 0; }};
-  RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+  RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+  RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
   MockJobScheduler ex;
   auto rm = std::make_unique<RegionManager>(
       kNumRegions, kRegionSize, kBaseOffset, *device, 1, ex, std::move(evictCb),
-      std::move(cleanupCb), sizeClasses, std::make_unique<LruPolicy>(4), 0, 0,
-      kFlushRetryLimit);
+      std::move(cleanupCb), std::make_unique<LruPolicy>(4),
+      kNumRegions /* numInMemBuffers */, 0, kFlushRetryLimit);
 
   constexpr uint32_t kLocalOffset = 3 * 1024;
   constexpr uint32_t kSize = 1024;
@@ -220,12 +206,15 @@ TEST(RegionManager, ReadWrite) {
   EXPECT_EQ(OpenStatus::Ready, wDesc.status());
   auto buf = bg.gen(kSize);
   auto wAddr = RelAddress{rid, kLocalOffset};
-  EXPECT_TRUE(rm->write(wAddr, buf.copy()));
+  rm->write(wAddr, buf.copy());
   auto rDesc = rm->openForRead(rid, 1);
   auto bufRead = rm->read(rDesc, wAddr, kSize);
   EXPECT_TRUE(bufRead.size() == kSize);
   EXPECT_EQ(buf.view(), bufRead.view());
 
+  // flush buffer
+  region.close(std::move(wDesc));
+  EXPECT_EQ(Region::FlushRes::kSuccess, rm->flushBuffer(rid));
   // Check device directly at the offset we expect data to be written
   auto expectedOfs = kBaseOffset + kRegionSize + kLocalOffset;
   Buffer bufReadDirect{kSize};
@@ -242,26 +231,20 @@ TEST(RegionManager, RecoveryLRUOrder) {
   folly::IOBufQueue ioq;
   {
     auto policy = std::make_unique<LruPolicy>(kNumRegions);
-    std::vector<uint32_t> sizeClasses{4096};
-    RegionEvictCallback evictCb{
-        [](RegionId, uint32_t, BufferView) { return 0; }};
-    RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+    RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+    RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
     MockJobScheduler ex;
     auto rm = std::make_unique<RegionManager>(
         kNumRegions, kRegionSize, 0, *device, 1, ex, std::move(evictCb),
-        std::move(cleanupCb), sizeClasses, std::move(policy), 0, 0,
-        kFlushRetryLimit);
+        std::move(cleanupCb), std::move(policy),
+        kNumRegions /* numInMemBuffers */, 0, kFlushRetryLimit);
 
     // Mark 1 and 2 clean (num entries == 0), 0 and 3 used. After recovery, LRU
     // should return clean before used, in order of index.
-    rm->getRegion(RegionId{0}).setClassId(1);
     for (int i = 0; i < 10; i++) {
       auto [desc, addr] = rm->getRegion(RegionId{0}).openAndAllocate(200);
       rm->getRegion(RegionId{0}).close(std::move(desc));
     }
-    rm->getRegion(RegionId{1}).setClassId(0);
-    rm->getRegion(RegionId{2}).setClassId(0);
-    rm->getRegion(RegionId{3}).setClassId(2);
     for (int i = 0; i < 20; i++) {
       auto [desc, addr] = rm->getRegion(RegionId{3}).openAndAllocate(150);
       rm->getRegion(RegionId{3}).close(std::move(desc));
@@ -273,15 +256,13 @@ TEST(RegionManager, RecoveryLRUOrder) {
 
   {
     auto policy = std::make_unique<LruPolicy>(kNumRegions);
-    std::vector<uint32_t> sizeClasses{4096};
-    RegionEvictCallback evictCb{
-        [](RegionId, uint32_t, BufferView) { return 0; }};
-    RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+    RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+    RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
     MockJobScheduler ex;
     auto rm = std::make_unique<RegionManager>(
         kNumRegions, kRegionSize, 0, *device, 1, ex, std::move(evictCb),
-        std::move(cleanupCb), sizeClasses, std::move(policy), 0, 0,
-        kFlushRetryLimit);
+        std::move(cleanupCb), std::move(policy),
+        kNumRegions /* numInMemBuffers */, 0, kFlushRetryLimit);
 
     auto rr = createMemoryRecordReader(ioq);
     rm->recover(*rr);
@@ -304,29 +285,21 @@ TEST(RegionManager, Fragmentation) {
   uint32_t fragmentationSize = 2 * kRegionSize;
   {
     auto policy = std::make_unique<LruPolicy>(kNumRegions);
-    // size class doesn't actually matter here since we're directly allocating
-    // ourselves in the test
-    std::vector<uint32_t> sizeClasses{4096};
-    RegionEvictCallback evictCb{
-        [](RegionId, uint32_t, BufferView) { return 0; }};
-    RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+    RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+    RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
     MockJobScheduler ex;
     auto rm = std::make_unique<RegionManager>(
         kNumRegions, kRegionSize, 0, *device, 1, ex, std::move(evictCb),
-        std::move(cleanupCb), sizeClasses, std::move(policy), 0, 0,
-        kFlushRetryLimit);
+        std::move(cleanupCb), std::move(policy),
+        kNumRegions /* numInMemBuffers */, 0, kFlushRetryLimit);
 
     // Mark 1 and 2 clean (num entries == 0), 0 and 3 used. After recovery, LRU
     // should return clean before used, in order of index.
-    rm->getRegion(RegionId{0}).setClassId(1);
     for (int i = 0; i < 10; i++) {
       auto [desc, addr] = rm->getRegion(RegionId{0}).openAndAllocate(200);
       rm->getRegion(RegionId{0}).close(std::move(desc));
       fragmentationSize -= 200;
     }
-    rm->getRegion(RegionId{1}).setClassId(0);
-    rm->getRegion(RegionId{2}).setClassId(0);
-    rm->getRegion(RegionId{3}).setClassId(2);
     for (int i = 0; i < 20; i++) {
       auto [desc, addr] = rm->getRegion(RegionId{3}).openAndAllocate(150);
       rm->getRegion(RegionId{3}).close(std::move(desc));
@@ -347,15 +320,13 @@ TEST(RegionManager, Fragmentation) {
 
   {
     auto policy = std::make_unique<LruPolicy>(kNumRegions);
-    std::vector<uint32_t> sizeClasses{4096};
-    RegionEvictCallback evictCb{
-        [](RegionId, uint32_t, BufferView) { return 0; }};
-    RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+    RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+    RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
     MockJobScheduler ex;
     auto rm = std::make_unique<RegionManager>(
         kNumRegions, kRegionSize, 0, *device, 1, ex, std::move(evictCb),
-        std::move(cleanupCb), sizeClasses, std::move(policy), 0, 0,
-        kFlushRetryLimit);
+        std::move(cleanupCb), std::move(policy),
+        kNumRegions /* numInMemBuffers */, 0, kFlushRetryLimit);
 
     rm->getCounters([](folly::StringPiece name, double count) {
       if (name == "navy_bc_external_fragmentation") {
@@ -387,12 +358,11 @@ TEST(RegionManager, cleanupRegionFailureSync) {
   auto device = std::make_unique<MockDevice>(kNumRegions * kRegionSize, 1024);
   auto policy = std::make_unique<LruPolicy>(kNumRegions);
   MockJobScheduler ex;
-  std::vector<uint32_t> sizeClasses{};
-  RegionEvictCallback evictCb{[](RegionId, uint32_t, BufferView) { return 0; }};
-  RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+  RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+  RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
   auto rm = std::make_unique<RegionManager>(
       kNumRegions, kRegionSize, 0, *device, 1, ex, std::move(evictCb),
-      std::move(cleanupCb), sizeClasses, std::move(policy), kNumInMemBuffer, 0,
+      std::move(cleanupCb), std::move(policy), kNumInMemBuffer, 0,
       kFlushRetryLimit);
 
   BufferGen bg;
@@ -409,7 +379,7 @@ TEST(RegionManager, cleanupRegionFailureSync) {
   EXPECT_EQ(OpenStatus::Ready, wDesc.status());
   auto buf = bg.gen(1024);
   auto wAddr = RelAddress{rid, 0};
-  EXPECT_TRUE(rm->write(wAddr, buf.copy()));
+  rm->write(wAddr, buf.copy());
   region.close(std::move(wDesc));
 
   SeqPoints sp;
@@ -477,12 +447,11 @@ TEST(RegionManager, cleanupRegionFailureAsync) {
   auto device = std::make_unique<MockDevice>(kNumRegions * kRegionSize, 1024);
   auto policy = std::make_unique<LruPolicy>(kNumRegions);
   MockSingleThreadJobScheduler ex;
-  std::vector<uint32_t> sizeClasses{};
-  RegionEvictCallback evictCb{[](RegionId, uint32_t, BufferView) { return 0; }};
-  RegionCleanupCallback cleanupCb{[](RegionId, uint32_t, BufferView) {}};
+  RegionEvictCallback evictCb{[](RegionId, BufferView) { return 0; }};
+  RegionCleanupCallback cleanupCb{[](RegionId, BufferView) {}};
   auto rm = std::make_unique<RegionManager>(
       kNumRegions, kRegionSize, 0, *device, 1, ex, std::move(evictCb),
-      std::move(cleanupCb), sizeClasses, std::move(policy), kNumInMemBuffer, 0,
+      std::move(cleanupCb), std::move(policy), kNumInMemBuffer, 0,
       kFlushRetryLimit);
 
   BufferGen bg;
@@ -505,7 +474,7 @@ TEST(RegionManager, cleanupRegionFailureAsync) {
   EXPECT_EQ(OpenStatus::Ready, wDesc.status());
   auto buf = bg.gen(1024);
   auto wAddr = RelAddress{rid, 0};
-  EXPECT_TRUE(rm->write(wAddr, buf.copy()));
+  rm->write(wAddr, buf.copy());
   region.close(std::move(wDesc));
 
   SeqPoints sp;

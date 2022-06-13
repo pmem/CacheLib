@@ -52,13 +52,13 @@ std::vector<detail::BufferAddr> bufferAddrs;
 void setupClMap() {
   // Prepopulate a map
   auto m = CachelibMap::create(*cache, poolId, "lookup_benchmark_map");
-  XDCHECK(!m.isNullItemHandle());
+  XDCHECK(!m.isNullWriteHandle());
   for (int32_t i = 0; i < FLAGS_num_keys; ++i) {
     Value v{};
     const auto res = m.insert(i, v);
     XDCHECK(res);
   }
-  cache->insert(m.viewItemHandle());
+  cache->insert(m.viewWriteHandle());
 }
 
 void setupUnorderedStdMap() {
@@ -136,7 +136,7 @@ void insertionCachelibBufferManagerOnly() {
 
 void insertionCachelibMap() {
   auto m = CachelibMap::create(*cache, poolId, "this_is_my_map");
-  XDCHECK(!m.isNullItemHandle());
+  XDCHECK(!m.isNullWriteHandle());
   for (int32_t i = 0; i < FLAGS_num_keys; ++i) {
     const auto res = m.insert(i, Value{});
     XDCHECK(res);
@@ -153,7 +153,7 @@ void lookupStdUnorderedMap() {
 }
 
 void lookupCachelibBufferManagerOnly() {
-  auto parent = cache->find("lookup_buffer_manager");
+  auto parent = cache->findImpl("lookup_buffer_manager", AccessMode::kRead);
   XDCHECK(parent != nullptr);
 
   CachelibBM bm{*cache, parent};
@@ -174,10 +174,10 @@ void lookupCachelibHashtableOnly() {
 }
 
 void lookupCachelibMap() {
-  auto handle = cache->find("lookup_benchmark_map");
+  auto handle = cache->findImpl("lookup_benchmark_map", AccessMode::kRead);
   XDCHECK(handle != nullptr);
 
-  CachelibMap m = CachelibMap::fromItemHandle(*cache, std::move(handle));
+  CachelibMap m = CachelibMap::fromWriteHandle(*cache, std::move(handle));
   for (int32_t i = 0; i < FLAGS_num_read_ops; ++i) {
     const int32_t key = i % FLAGS_num_keys;
     auto* v = m.find(key);

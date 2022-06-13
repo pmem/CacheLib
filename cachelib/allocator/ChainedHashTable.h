@@ -272,12 +272,18 @@ class ChainedHashTable {
     }
 
     // Estimate bucketsPower and LocksPower based on cache entries.
-    void sizeBucketsPowerAndLocksPower(size_t cacheEntries) noexcept {
+    void sizeBucketsPowerAndLocksPower(size_t cacheEntries) {
       // The percentage of used buckets vs unused buckets is measured by a load
       // factor. For optimal performance, the load factor should not be more
       // than 60%.
       bucketsPower_ =
           static_cast<size_t>(ceil(log2(cacheEntries * 1.6 /* load factor */)));
+
+      if (bucketsPower_ > kMaxBucketPower) {
+        throw std::invalid_argument(folly::sformat(
+            "Invalid arguments to the config constructor cacheEntries =  {}",
+            cacheEntries));
+      }
 
       // 1 lock per 1000 buckets.
       locksPower_ = std::max<unsigned int>(1, bucketsPower_ - 10);
@@ -550,6 +556,7 @@ class ChainedHashTable {
         return !(*this == other);
       }
 
+      // TODO(jiayueb): change to return ReadHandle after fixing all the breaks
       const Handle& asHandle() { return curr(); }
 
       // reset the Iterator to begin of container
@@ -629,7 +636,9 @@ class ChainedHashTable {
     Stats getStats() const noexcept { return {numKeys_, ht_.getNumBuckets()}; }
 
     // Get the total number of keys inserted into the hash table
-    uint64_t getNumKeys() const noexcept { return numKeys_; }
+    uint64_t getNumKeys() const noexcept {
+      return numKeys_.load(std::memory_order_relaxed);
+    }
 
    private:
     using Hashtable = Impl<T, HookPtr>;

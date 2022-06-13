@@ -49,9 +49,27 @@ struct SimplePoolOptimizeStrategy;
 // to differentiate between the access modes and do appropriate action.
 enum class AccessMode { kRead, kWrite };
 
-// enum value to indicate if the removal from the MMContainer was an eviction
-// or not.
+// used by RemoveCB, indicating if the removal from the MMContainer was an
+// eviction or not.
 enum class RemoveContext { kEviction, kNormal };
+// used by ItemDestructor, indicating how the item is destructed
+enum class DestructorContext {
+  // item was in dram and evicted from dram. it could have
+  // been present in nvm as well.
+  kEvictedFromRAM,
+
+  // item was only in nvm and evicted from nvm
+  kEvictedFromNVM,
+
+  // item was present in dram and removed by user calling
+  // remove()/insertOrReplace, or removed due to expired.
+  // it could have been present in nvm as well.
+  kRemovedFromRAM,
+
+  // item was present only in nvm and removed by user calling
+  // remove()/insertOrReplace.
+  kRemovedFromNVM
+};
 
 // A base class of cache exposing members and status agnostic of template type.
 class CacheBase {
@@ -168,6 +186,10 @@ class CacheBase {
   // return the virtual interface of an attached  compact cache for a particular
   // pool id
   virtual const ICompactCache& getCompactCache(PoolId pid) const = 0;
+
+  // return object cache stats
+  virtual void getObjectCacheCounters(
+      std::function<void(folly::StringPiece, uint64_t)>) const {}
 
  protected:
   // move bytes from one pool to another. The source pool should be at least

@@ -46,7 +46,7 @@ void JobQueue::enqueue(Job job, folly::StringPiece name, QueuePos pos) {
   bool wasEmpty = false;
   {
     std::lock_guard<std::mutex> lock{mutex_};
-    wasEmpty = queue_.empty();
+    wasEmpty = queue_.empty() && processing_ == 0;
     if (!stop_) {
       if (pos == QueuePos::Front) {
         queue_.emplace_front(std::move(job), name);
@@ -56,7 +56,7 @@ void JobQueue::enqueue(Job job, folly::StringPiece name, QueuePos pos) {
       }
       enqueueCount_++;
     }
-    maxQueueLen_ = std::max(maxQueueLen_, queue_.size());
+    maxQueueLen_ = std::max<uint64_t>(maxQueueLen_, queue_.size());
   }
 
   if (wasEmpty) {

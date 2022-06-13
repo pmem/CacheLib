@@ -18,6 +18,7 @@
 
 #include <folly/Optional.h>
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <set>
@@ -44,6 +45,7 @@ class CacheAllocatorConfig {
   using AccessConfig = typename CacheT::AccessConfig;
   using ChainedItemMovingSync = typename CacheT::ChainedItemMovingSync;
   using RemoveCb = typename CacheT::RemoveCb;
+  using ItemDestructor = typename CacheT::ItemDestructor;
   using NvmCacheEncodeCb = typename CacheT::NvmCacheT::EncodeCB;
   using NvmCacheDecodeCb = typename CacheT::NvmCacheT::DecodeCB;
   using NvmCacheDeviceEncryptor = typename CacheT::NvmCacheT::DeviceEncryptor;
@@ -81,8 +83,12 @@ class CacheAllocatorConfig {
   CacheAllocatorConfig& setAccessConfig(size_t numEntries);
 
   // RemoveCallback is invoked for each item that is evicted or removed
-  // explicitly
+  // explicitly from RAM
   CacheAllocatorConfig& setRemoveCallback(RemoveCb cb);
+
+  // ItemDestructor is invoked for each item that is evicted or removed
+  // explicitly from cache (both RAM and NVM)
+  CacheAllocatorConfig& setItemDestructor(ItemDestructor destructor);
 
   // Config for NvmCache. If enabled, cachelib will also make use of flash.
   CacheAllocatorConfig& enableNvmCache(NvmCacheConfig config);
@@ -254,7 +260,11 @@ class CacheAllocatorConfig {
       ChainedItemMovingSync sync = {},
       uint32_t movingAttemptsLimit = 10);
 
-  // This customizes how many items we try to evict before giving up.
+  // Specify a threshold for detecting slab release stuck
+  CacheAllocatorConfig& setSlabReleaseStuckThreashold(
+      std::chrono::milliseconds threshold);
+
+  // This customizes how many items we try to evict before giving up.s
   // We may fail to evict if someone else (another thread) is using an item.
   // Setting this to a high limit leads to a higher chance of successful
   // evictions but it can lead to higher allocation latency as well.
@@ -286,6 +296,25 @@ class CacheAllocatorConfig {
   // If nvmAdmissionMinTTL is set to be positive, any item with configured TTL
   // smaller than this will always be rejected by NvmAdmissionPolicy.
   CacheAllocatorConfig& setNvmAdmissionMinTTL(uint64_t ttl);
+
+  // Skip promote children items in chained when parent fail to promote
+  CacheAllocatorConfig& setSkipPromoteChildrenWhenParentFailed();
+
+  // (deprecated) Disable cache eviction.
+  // Please do not create new callers. CacheLib will stop supporting disabled
+  // eviction.
+  [[deprecated]] CacheAllocatorConfig& deprecated_disableEviction();
+
+  bool isEvictionDisabled() const noexcept { return disableEviction; }
+
+  // We will delay worker start until user explicitly calls
+  // CacheAllocator::startCacheWorkers()
+  CacheAllocatorConfig& setDelayCacheWorkersStart();
+
+  // skip promote children items in chained when parent fail to promote
+  bool isSkipPromoteChildrenWhenParentFailed() const noexcept {
+    return skipPromoteChildrenWhenParentFailed;
+  }
 
   // @return whether compact cache is enabled
   bool isCompactCacheEnabled() const noexcept { return enableZeroedSlabAllocs; }
@@ -409,6 +438,10 @@ class CacheAllocatorConfig {
   std::shared_ptr<RebalanceStrategy> defaultPoolRebalanceStrategy{
       new RebalanceStrategy{}};
 
+  // The slab release process is considered as being stuck if it does not
+  // make any progress for the below threshold
+  std::chrono::milliseconds slabReleaseStuckThreshold{std::chrono::seconds(60)};
+
   // time interval to sleep between iterations of pool size optimization,
   // for regular pools and compact caches
   std::chrono::seconds regularPoolOptimizeInterval{0};
@@ -448,11 +481,6 @@ class CacheAllocatorConfig {
   // ABOVE are the config for various cache workers
   //
 
-  // if turned on, cache allocator will not evict any item when the
-  // system is out of memory. The user must free previously allocated
-  // items to make more room.
-  bool disableEviction = false;
-
   // the number of tries to search for an item to evict
   // 0 means it's infinite
   unsigned int evictionSearchTries{50};
@@ -486,8 +514,13 @@ class CacheAllocatorConfig {
   // for all normal items
   AccessConfig accessConfig{};
 
-  // user defined callback invoked when an item is being evicted or freed
+  // user defined callback invoked when an item is being evicted or freed from
+  // RAM
   RemoveCb removeCb{};
+
+  // user defined item destructor invoked when an item is being
+  // evicted or freed from cache (both RAM and NVM)
+  ItemDestructor itemDestructor{};
 
   // user defined call back to move the item. This is executed while holding
   // the user provided movingSync. For items without chained allocations,
@@ -541,6 +574,13 @@ class CacheAllocatorConfig {
   // cache.
   uint64_t nvmAdmissionMinTTL{0};
 
+  // Skip promote children items in chained when parent fail to promote
+  bool skipPromoteChildrenWhenParentFailed{false};
+
+  // If true, we will delay worker start until user explicitly calls
+  // CacheAllocator::startCacheWorkers()
+  bool delayCacheWorkersStart{false};
+
   friend CacheT;
 
  private:
@@ -551,6 +591,11 @@ class CacheAllocatorConfig {
   std::string stringifyAddr(const void* addr) const;
   std::string stringifyRebalanceStrategy(
       const std::shared_ptr<RebalanceStrategy>& strategy) const;
+
+  // if turned on, cache allocator will not evict any item when the
+  // system is out of memory. The user must free previously allocated
+  // items to make more room.
+  bool disableEviction = false;
 };
 
 template <typename T>
@@ -610,6 +655,13 @@ template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setRemoveCallback(
     RemoveCb cb) {
   removeCb = std::move(cb);
+  return *this;
+}
+
+template <typename T>
+CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setItemDestructor(
+    ItemDestructor destructor) {
+  itemDestructor = std::move(destructor);
   return *this;
 }
 
@@ -876,6 +928,13 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enableMovingOnSlabRelease(
 }
 
 template <typename T>
+CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setSlabReleaseStuckThreashold(
+    std::chrono::milliseconds threshold) {
+  slabReleaseStuckThreshold = threshold;
+  return *this;
+}
+
+template <typename T>
 CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setEvictionSearchLimit(
     uint32_t limit) {
   evictionSearchTries = limit;
@@ -917,6 +976,25 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setNvmAdmissionMinTTL(
 }
 
 template <typename T>
+CacheAllocatorConfig<T>&
+CacheAllocatorConfig<T>::setSkipPromoteChildrenWhenParentFailed() {
+  skipPromoteChildrenWhenParentFailed = true;
+  return *this;
+}
+
+template <typename T>
+CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::deprecated_disableEviction() {
+  disableEviction = true;
+  return *this;
+}
+
+template <typename T>
+CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::setDelayCacheWorkersStart() {
+  delayCacheWorkersStart = true;
+  return *this;
+}
+
+template <typename T>
 const CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::validate() const {
   // we can track tail hits only if MMType is MM2Q
   if (trackTailHits && T::MMType::kId != MM2Q::kId) {
@@ -924,11 +1002,7 @@ const CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::validate() const {
         "Tail hits tracking cannot be enabled on MMTypes except MM2Q.");
   }
 
-  // The first part determines max number of "slots" we can address using
-  // CompressedPtr;
-  // The second part specifies the minimal allocation size for each slot.
-  // Multiplied, they inform us the maximal addressable space for cache.
-  size_t maxCacheSize = (1ul << CompressedPtr::kNumBits) * Slab::kMinAllocSize;
+  size_t maxCacheSize = CompressedPtr::getMaxAddressableSize();
   // Configured cache size should not exceed the maximal addressable space for
   // cache.
   if (size > maxCacheSize) {
@@ -936,6 +1010,12 @@ const CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::validate() const {
         "config cache size: {}  exceeds max addressable space for cache: {}",
         size,
         maxCacheSize));
+  }
+
+  // we don't allow user to enable both RemoveCB and ItemDestructor
+  if (removeCb && itemDestructor) {
+    throw std::invalid_argument(
+        "It's not allowed to enable both RemoveCB and ItemDestructor.");
   }
   return *this;
 }
@@ -988,6 +1068,8 @@ std::map<std::string, std::string> CacheAllocatorConfig<T>::serialize() const {
   configMap["poolResizeSlabsPerIter"] = std::to_string(poolResizeSlabsPerIter);
 
   configMap["poolRebalanceInterval"] = util::toString(poolRebalanceInterval);
+  configMap["slabReleaseStuckThreshold"] =
+      util::toString(slabReleaseStuckThreshold);
   configMap["trackTailHits"] = std::to_string(trackTailHits);
   // Stringify enum
   switch (memMonitorConfig.mode) {
@@ -1043,6 +1125,8 @@ std::map<std::string, std::string> CacheAllocatorConfig<T>::serialize() const {
       stringifyRebalanceStrategy(defaultPoolRebalanceStrategy);
   configMap["eventTracker"] = eventTracker ? "set" : "empty";
   configMap["nvmAdmissionMinTTL"] = std::to_string(nvmAdmissionMinTTL);
+  configMap["delayCacheWorkersStart"] =
+      delayCacheWorkersStart ? "true" : "false";
   mergeWithPrefix(configMap, throttleConfig.serialize(), "throttleConfig");
   mergeWithPrefix(configMap,
                   chainedItemAccessConfig.serialize(),

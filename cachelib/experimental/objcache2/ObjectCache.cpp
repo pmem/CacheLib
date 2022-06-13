@@ -13,28 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-#pragma once
-
-#include "cachelib/navy/block_cache/Index.h"
-#include "cachelib/navy/common/Hash.h"
-#include "cachelib/navy/common/Types.h"
-#include "cachelib/navy/serialization/Serialization.h"
+#include "cachelib/experimental/objcache2/ObjectCache.h"
 
 namespace facebook {
 namespace cachelib {
-namespace navy {
-// Abstract base class of a reinsertion policy.
-class ReinsertionPolicy {
- public:
-  virtual ~ReinsertionPolicy() = default;
-
-  // Determines whether or not we should keep this key around longer in cache.
-  virtual bool shouldReinsert(HashedKey hk, const Index::LookupResult& lr) = 0;
-
-  // Exports policy stats via CounterVisitor.
-  virtual void getCounters(const CounterVisitor& visitor) const = 0;
-};
-} // namespace navy
+namespace objcache2 {} // namespace objcache2
 } // namespace cachelib
 } // namespace facebook

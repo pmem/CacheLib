@@ -30,7 +30,6 @@ RegionManager::RegionManager(uint32_t numRegions,
                              JobScheduler& scheduler,
                              RegionEvictCallback evictCb,
                              RegionCleanupCallback cleanupCb,
-                             std::vector<uint32_t> sizeClasses,
                              std::unique_ptr<EvictionPolicy> policy,
                              uint32_t numInMemBuffers,
                              uint16_t numPriorities,
@@ -47,18 +46,19 @@ RegionManager::RegionManager(uint32_t numRegions,
       scheduler_{scheduler},
       evictCb_{evictCb},
       cleanupCb_{cleanupCb},
-      sizeClasses_{sizeClasses},
       numInMemBuffers_{numInMemBuffers} {
   XLOGF(INFO, "{} regions, {} bytes each", numRegions_, regionSize_);
   for (uint32_t i = 0; i < numRegions; i++) {
     regions_[i] = std::make_unique<Region>(RegionId{i}, regionSize_);
   }
-  if (doesBufferingWrites()) {
-    for (uint32_t i = 0; i < numInMemBuffers_; i++) {
-      buffers_.push_back(
-          std::make_unique<Buffer>(device.makeIOBuffer(regionSize_)));
-    }
+
+  XDCHECK_LT(0u, numInMemBuffers_);
+
+  for (uint32_t i = 0; i < numInMemBuffers_; i++) {
+    buffers_.push_back(
+        std::make_unique<Buffer>(device.makeIOBuffer(regionSize_)));
   }
+
   resetEvictionPolicy();
 }
 
@@ -67,10 +67,17 @@ RegionId RegionManager::evict() {
   if (!rid.valid()) {
     XLOG(ERR, "Eviction failed");
   } else {
-    auto& region = getRegion(rid);
-    XLOGF(DBG, "Evict {} class {}", rid.index(), region.getClassId());
+    XLOGF(DBG, "Evict {}", rid.index());
   }
   return rid;
+}
+
+void RegionManager::touch(RegionId rid) {
+  auto& region = getRegion(rid);
+  XDCHECK_EQ(rid, region.id());
+  if (!region.hasBuffer()) {
+    policy_->touch(rid);
+  }
 }
 
 void RegionManager::track(RegionId rid) {
@@ -96,7 +103,7 @@ void RegionManager::reset() {
   resetEvictionPolicy();
 }
 
-bool RegionManager::flushBuffer(const RegionId& rid) {
+Region::FlushRes RegionManager::flushBuffer(const RegionId& rid) {
   auto& region = getRegion(rid);
   auto callBack = [this](RelAddress addr, BufferView view) {
     auto writeBuffer = device_.makeIOBuffer(view.size());
@@ -109,10 +116,7 @@ bool RegionManager::flushBuffer(const RegionId& rid) {
   };
 
   // This is no-op if the buffer is already flushed
-  if (!region.flushBuffer(std::move(callBack))) {
-    return false;
-  }
-  return true;
+  return region.flushBuffer(std::move(callBack));
 }
 
 bool RegionManager::detachBuffer(const RegionId& rid) {
@@ -129,7 +133,7 @@ bool RegionManager::detachBuffer(const RegionId& rid) {
 bool RegionManager::cleanupBufferOnFlushFailure(const RegionId& regionId) {
   auto& region = getRegion(regionId);
   auto callBack = [this](RegionId rid, BufferView buffer) {
-    cleanupCb_(rid, getRegionSlotSize(rid), buffer);
+    cleanupCb_(rid, buffer);
     numInMemBufWaitingFlush_.dec();
     numInMemBufFlushFailures_.inc();
   };
@@ -207,7 +211,7 @@ OpenStatus RegionManager::getCleanRegion(RegionId& rid) {
     scheduler_.enqueue(
         [this] { return startReclaim(); }, "reclaim", JobType::Reclaim);
   }
-  if (doesBufferingWrites() && status == OpenStatus::Ready) {
+  if (status == OpenStatus::Ready) {
     status = assignBufferToRegion(rid);
     if (status != OpenStatus::Ready) {
       std::lock_guard<std::mutex> lock{cleanRegionsMutex_};
@@ -220,15 +224,6 @@ OpenStatus RegionManager::getCleanRegion(RegionId& rid) {
 void RegionManager::doFlush(RegionId rid, bool async) {
   // We're wasting the remaining bytes of a region, so track it for stats
   externalFragmentation_.add(getRegion(rid).getFragmentationSize());
-
-  // applicable only if configured to use in-memory buffers
-  if (!doesBufferingWrites()) {
-    // If in-memory buffering is not enabled, nothing to flush and
-    // track the region. If in-memory buffer is enabled
-    // tracking is started after flush is successful.
-    track(rid);
-    return;
-  }
 
   getRegion(rid).setPendingFlush();
   numInMemBufWaitingFlush_.inc();
@@ -245,12 +240,15 @@ void RegionManager::doFlush(RegionId rid, bool async) {
         numInMemBufCleanupRetries_.inc();
         return JobExitCode::Reschedule;
       }
-      if (flushBuffer(rid)) {
+      auto res = flushBuffer(rid);
+      if (res == Region::FlushRes::kSuccess) {
         flushed = true;
       } else {
-        // Flush fails
-        retryAttempts++;
-        numInMemBufFlushRetries_.inc();
+        // We have a limited retry limit for flush errors due to device
+        if (res == Region::FlushRes::kRetryDeviceFailure) {
+          retryAttempts++;
+          numInMemBufFlushRetries_.inc();
+        }
         return JobExitCode::Reschedule;
       }
     }
@@ -406,7 +404,7 @@ void RegionManager::doEviction(RegionId rid, BufferView buffer) const {
   } else {
     const auto evictStartTime = getSteadyClock();
     XLOGF(DBG, "Evict region {} entries", rid.index());
-    auto numEvicted = evictCb_(rid, getRegionSlotSize(rid), buffer);
+    auto numEvicted = evictCb_(rid, buffer);
     XLOGF(DBG,
           "Evict region {} entries: {} us",
           rid.index(),
@@ -417,37 +415,30 @@ void RegionManager::doEviction(RegionId rid, BufferView buffer) const {
 
 void RegionManager::persist(RecordWriter& rw) const {
   serialization::RegionData regionData;
-  *regionData.regionSize_ref() = regionSize_;
-  regionData.regions_ref()->resize(numRegions_);
+  *regionData.regionSize() = regionSize_;
+  regionData.regions()->resize(numRegions_);
   for (uint32_t i = 0; i < numRegions_; i++) {
-    auto& regionProto = regionData.regions_ref()[i];
-    *regionProto.regionId_ref() = i;
-    *regionProto.lastEntryEndOffset_ref() =
-        regions_[i]->getLastEntryEndOffset();
-    regionProto.pinned_ref() = false;
-    if (*regionProto.pinned_ref()) {
-      *regionProto.classId_ref() = 0;
-    } else {
-      *regionProto.classId_ref() = regions_[i]->getClassId();
-    }
-    regionProto.priority_ref() = regions_[i]->getPriority();
-    *regionProto.numItems_ref() = regions_[i]->getNumItems();
+    auto& regionProto = regionData.regions()[i];
+    *regionProto.regionId() = i;
+    *regionProto.lastEntryEndOffset() = regions_[i]->getLastEntryEndOffset();
+    regionProto.priority() = regions_[i]->getPriority();
+    *regionProto.numItems() = regions_[i]->getNumItems();
   }
   serializeProto(regionData, rw);
 }
 
 void RegionManager::recover(RecordReader& rr) {
   auto regionData = deserializeProto<serialization::RegionData>(rr);
-  if (regionData.regions_ref()->size() != numRegions_ ||
-      static_cast<uint32_t>(*regionData.regionSize_ref()) != regionSize_) {
+  if (regionData.regions()->size() != numRegions_ ||
+      static_cast<uint32_t>(*regionData.regionSize()) != regionSize_) {
     throw std::invalid_argument(
         "Could not recover RegionManager. Invalid RegionData.");
   }
 
-  for (auto& regionProto : *regionData.regions_ref()) {
-    uint32_t index = *regionProto.regionId_ref();
+  for (auto& regionProto : *regionData.regions()) {
+    uint32_t index = *regionProto.regionId();
     if (index >= numRegions_ ||
-        static_cast<uint32_t>(*regionProto.lastEntryEndOffset_ref()) >
+        static_cast<uint32_t>(*regionProto.lastEntryEndOffset()) >
             regionSize_) {
       throw std::invalid_argument(
           "Could not recover RegionManager. Invalid RegionId.");
@@ -455,11 +446,11 @@ void RegionManager::recover(RecordReader& rr) {
     // To handle compatibility between different priorities. If the current
     // setup has fewer priorities than the last run, automatically downgrade
     // all higher priorties to the current max.
-    if (numPriorities_ > 0 && regionProto.priority_ref() >= numPriorities_) {
-      regionProto.priority_ref() = numPriorities_ - 1;
+    if (numPriorities_ > 0 && regionProto.priority() >= numPriorities_) {
+      regionProto.priority() = numPriorities_ - 1;
     }
     regions_[index] =
-        std::make_unique<Region>(regionProto, *regionData.regionSize_ref());
+        std::make_unique<Region>(regionProto, *regionData.regionSize());
   }
 
   // Reset policy and reinitialize it per the recovered state
@@ -505,14 +496,10 @@ bool RegionManager::deviceWrite(RelAddress addr, Buffer buf) {
   return true;
 }
 
-bool RegionManager::write(RelAddress addr, Buffer buf) {
-  if (doesBufferingWrites()) {
-    auto rid = addr.rid();
-    auto& region = getRegion(rid);
-    region.writeToBuffer(addr.offset(), buf.view());
-    return true;
-  }
-  return deviceWrite(addr, std::move(buf));
+void RegionManager::write(RelAddress addr, Buffer buf) {
+  auto rid = addr.rid();
+  auto& region = getRegion(rid);
+  region.writeToBuffer(addr.offset(), buf.view());
 }
 
 Buffer RegionManager::read(const RegionDescriptor& desc,
@@ -522,7 +509,7 @@ Buffer RegionManager::read(const RegionDescriptor& desc,
   auto& region = getRegion(rid);
   // Do not expect to read beyond what was already written
   XDCHECK_LE(addr.offset() + size, region.getLastEntryEndOffset());
-  if (doesBufferingWrites() && !desc.isPhysReadMode()) {
+  if (!desc.isPhysReadMode()) {
     auto buffer = Buffer(size);
     XDCHECK(region.hasBuffer());
     region.readFromBuffer(addr.offset(), buffer.mutableView());

@@ -80,13 +80,13 @@ class MMTinyLFU {
   struct Config {
     // create from serialized config
     explicit Config(SerializationConfigType configState)
-        : Config(*configState.lruRefreshTime_ref(),
-                 *configState.lruRefreshRatio_ref(),
-                 *configState.updateOnWrite_ref(),
-                 *configState.updateOnRead_ref(),
-                 *configState.tryLockUpdate_ref(),
-                 *configState.windowToCacheSizeRatio_ref(),
-                 *configState.tinySizePercent_ref()) {}
+        : Config(*configState.lruRefreshTime(),
+                 *configState.lruRefreshRatio(),
+                 *configState.updateOnWrite(),
+                 *configState.updateOnRead(),
+                 *configState.tryLockUpdate(),
+                 *configState.windowToCacheSizeRatio(),
+                 *configState.tinySizePercent()) {}
 
     // @param time        the LRU refresh time in seconds.
     //                    An item will be promoted only once in each lru refresh
@@ -594,15 +594,6 @@ class MMTinyLFU {
 
     // the lru
     LruList lru_;
-
-    // number of inserts into the LRU
-    uint64_t numLockByInserts_{0};
-
-    // number of lock hits by calling recordAccess
-    uint64_t numLockByRecordAccesses_{0};
-
-    // number of lock hits by calling recordAccess on nodes not in mmContainer
-    uint64_t numLockByRemoves_{0};
 
     // the window size counter
     size_t windowSize_{0};

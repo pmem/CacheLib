@@ -21,15 +21,11 @@ add_library (cachelib_common
   CountDownLatch.cpp
   ${BLOOM_THRIFT_FILES}
   hothash/HotHashDetector.cpp
-  hothash/HotHashDetectorTest.cpp
   PercentileStats.cpp
   PeriodicWorker.cpp
   piecewise/GenericPieces.cpp
-  piecewise/GenericPiecesTest.cpp
   piecewise/RequestRange.cpp
-  piecewise/RequestRangeTest.cpp
   Serialization.cpp
-  TestUtils.cpp
   Utils.cpp
 )
 add_dependencies(cachelib_common thrift_generated_files)
@@ -51,9 +47,23 @@ install(TARGETS cachelib_common
 
 
 if (BUILD_TESTS)
-  add_library (common_test_support INTERFACE)
-  target_link_libraries (common_test_support INTERFACE
+  add_library (common_test_utils STATIC
+    TestUtils.cpp
+  )
+  target_link_libraries (common_test_utils PUBLIC
     cachelib_common
+    gflags
+    GTest::gtest
+    GTest::gtest_main
+  )
+  add_library (common_test_support OBJECT
+    hothash/HotHashDetectorTest.cpp
+    piecewise/GenericPiecesTest.cpp
+    piecewise/RequestRangeTest.cpp
+  )
+  target_link_libraries (common_test_support PUBLIC
+    cachelib_common
+    common_test_utils
     gflags
     GTest::gtest
     GTest::gtest_main
@@ -75,14 +85,13 @@ if (BUILD_TESTS)
   add_test (tests/CohortTests.cpp)
   add_test (tests/CounterTests.cpp)
   add_test (tests/CountMinSketchTest.cpp)
-  add_test (tests/EventInterfaceTest.cpp cachelib_allocator)
+  add_test (tests/EventInterfaceTest.cpp allocator_test_support)
   add_test (tests/HashTests.cpp)
   add_test (tests/IteratorsTests.cpp)
   add_test (tests/MutexTests.cpp)
   add_test (tests/PeriodicWorkerTest.cpp)
-  add_test (tests/SerializationTest.cpp cachelib_allocator)
+  add_test (tests/SerializationTest.cpp allocator_test_support)
   add_test (tests/UtilTests.cpp)
   add_test (tests/CountDownLatchTest.cpp)
   add_test (tests/UtilTestsRSS.cpp)
-  add_test (tests/TimeTests.cpp)
 endif()

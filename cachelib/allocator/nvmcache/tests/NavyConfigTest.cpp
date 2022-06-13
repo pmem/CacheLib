@@ -19,6 +19,7 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "cachelib/allocator/nvmcache/BlockCacheReinsertionPolicy.h"
 #include "cachelib/allocator/nvmcache/NavyConfig.h"
 #include "cachelib/navy/common/Types.h"
 namespace facebook {
@@ -45,12 +46,19 @@ const uint32_t deviceMaxWriteSize = 4 * 1024 * 1024;
 
 // BlockCache settings
 const uint32_t blockCacheRegionSize = 16 * 1024 * 1024;
-const std::vector<uint32_t> blockCacheSizeClasses = {1024, 2048, 4096};
 const uint8_t blockCacheReinsertionHitsThreshold = 111;
 const uint32_t blockCacheCleanRegions = 4;
 const bool blockCacheDataChecksum = true;
 const std::vector<unsigned int> blockCacheSegmentedFifoSegmentRatio = {111, 222,
                                                                        333};
+
+class DummyReinsertionPolicy : public BlockCacheReinsertionPolicy {
+ public:
+  bool shouldReinsert(folly::StringPiece /* key */) override { return true; }
+
+  void getCounters(const util::CounterVisitor& /* visitor */) const override {}
+};
+
 // BigCache settings
 const unsigned int bigHashSizePct = 50;
 const uint32_t bigHashBucketSize = 1024;
@@ -85,9 +93,8 @@ void setBlockCacheTestSettings(NavyConfig& config) {
   config.blockCache()
       .enableSegmentedFifo(blockCacheSegmentedFifoSegmentRatio)
       .enableHitsBasedReinsertion(blockCacheReinsertionHitsThreshold)
-      .setCleanRegions(blockCacheCleanRegions, true)
+      .setCleanRegions(blockCacheCleanRegions)
       .setRegionSize(blockCacheRegionSize)
-      .useSizeClasses(blockCacheSizeClasses)
       .setDataChecksum(blockCacheDataChecksum);
 }
 
@@ -128,10 +135,9 @@ TEST(NavyConfigTest, DefaultVal) {
   EXPECT_EQ(blockCacheConfig.isLruEnabled(), true);
   EXPECT_EQ(blockCacheConfig.getRegionSize(), 16 * 1024 * 1024);
   EXPECT_EQ(blockCacheConfig.getCleanRegions(), 1);
-  EXPECT_TRUE(blockCacheConfig.getSizeClasses().empty());
   EXPECT_TRUE(blockCacheConfig.getSFifoSegmentRatio().empty());
   EXPECT_EQ(blockCacheConfig.getDataChecksum(), true);
-  EXPECT_EQ(blockCacheConfig.getNumInMemBuffers(), 0);
+  EXPECT_EQ(blockCacheConfig.getNumInMemBuffers(), 2);
 
   const auto& bigHashConfig = config.bigHash();
   EXPECT_EQ(bigHashConfig.getBucketSize(), 4096);
@@ -180,7 +186,6 @@ TEST(NavyConfigTest, Serialization) {
 
   expectedConfigMap["navyConfig::blockCacheLru"] = "false";
   expectedConfigMap["navyConfig::blockCacheRegionSize"] = "16777216";
-  expectedConfigMap["navyConfig::blockCacheSizeClasses"] = "1024,2048,4096";
   expectedConfigMap["navyConfig::blockCacheCleanRegions"] = "4";
   expectedConfigMap["navyConfig::blockCacheReinsertionHitsThreshold"] = "111";
   expectedConfigMap["navyConfig::blockCacheReinsertionPctThreshold"] = "0";
@@ -268,15 +273,13 @@ TEST(NavyConfigTest, BlockCache) {
   // test general settings
   config.blockCache()
       .setRegionSize(blockCacheRegionSize)
-      .setCleanRegions(blockCacheCleanRegions, true)
-      .setDataChecksum(blockCacheDataChecksum)
-      .useSizeClasses(blockCacheSizeClasses);
+      .setCleanRegions(blockCacheCleanRegions)
+      .setDataChecksum(blockCacheDataChecksum);
   auto& blockCacheConfig = config.blockCache();
   EXPECT_EQ(blockCacheConfig.getRegionSize(), blockCacheRegionSize);
   EXPECT_EQ(blockCacheConfig.getCleanRegions(), blockCacheCleanRegions);
   EXPECT_EQ(blockCacheConfig.getNumInMemBuffers(), blockCacheCleanRegions * 2);
   EXPECT_EQ(blockCacheConfig.getDataChecksum(), blockCacheDataChecksum);
-  EXPECT_EQ(blockCacheConfig.getSizeClasses(), blockCacheSizeClasses);
 
   // test FIFO eviction policy
   config.blockCache().enableFifo();
@@ -288,6 +291,8 @@ TEST(NavyConfigTest, BlockCache) {
   EXPECT_EQ(blockCacheConfig.getSFifoSegmentRatio(),
             blockCacheSegmentedFifoSegmentRatio);
 
+  auto customPolicy = std::make_shared<DummyReinsertionPolicy>();
+
   // test cannot enable both hits-based and probability-based reinsertion policy
   config = NavyConfig{};
   EXPECT_THROW(
@@ -295,9 +300,12 @@ TEST(NavyConfigTest, BlockCache) {
           .enableHitsBasedReinsertion(blockCacheReinsertionHitsThreshold)
           .enablePctBasedReinsertion(50),
       std::invalid_argument);
-  EXPECT_EQ(blockCacheConfig.getReinsertionHitsThreshold(),
+  EXPECT_THROW(config.blockCache().enableCustomReinsertion(customPolicy),
+               std::invalid_argument);
+  EXPECT_EQ(blockCacheConfig.getReinsertionConfig().getHitsThreshold(),
             blockCacheReinsertionHitsThreshold);
-  EXPECT_EQ(blockCacheConfig.getReinsertionPctThreshold(), 0);
+  EXPECT_EQ(blockCacheConfig.getReinsertionConfig().getPctThreshold(), 0);
+  EXPECT_EQ(blockCacheConfig.getReinsertionConfig().getCustomPolicy(), nullptr);
 
   config = NavyConfig{};
   EXPECT_THROW(
@@ -305,13 +313,29 @@ TEST(NavyConfigTest, BlockCache) {
           .enablePctBasedReinsertion(50)
           .enableHitsBasedReinsertion(blockCacheReinsertionHitsThreshold),
       std::invalid_argument);
-  EXPECT_EQ(blockCacheConfig.getReinsertionPctThreshold(), 50);
-  EXPECT_EQ(blockCacheConfig.getReinsertionHitsThreshold(), 0);
+  EXPECT_THROW(config.blockCache().enableCustomReinsertion(customPolicy),
+               std::invalid_argument);
+  EXPECT_EQ(blockCacheConfig.getReinsertionConfig().getPctThreshold(), 50);
+  EXPECT_EQ(blockCacheConfig.getReinsertionConfig().getHitsThreshold(), 0);
+  EXPECT_EQ(blockCacheConfig.getReinsertionConfig().getCustomPolicy(), nullptr);
 
   // test invalid input for percentage based reinsertion policy
   config = NavyConfig{};
   EXPECT_THROW(config.blockCache().enablePctBasedReinsertion(200),
                std::invalid_argument);
+
+  config = NavyConfig{};
+  EXPECT_THROW(config.blockCache()
+                   .enableCustomReinsertion(customPolicy)
+                   .enablePctBasedReinsertion(50),
+               std::invalid_argument);
+  EXPECT_THROW(config.blockCache().enableHitsBasedReinsertion(
+                   blockCacheReinsertionHitsThreshold),
+               std::invalid_argument);
+  EXPECT_EQ(blockCacheConfig.getReinsertionConfig().getPctThreshold(), 0);
+  EXPECT_EQ(blockCacheConfig.getReinsertionConfig().getHitsThreshold(), 0);
+  EXPECT_EQ(blockCacheConfig.getReinsertionConfig().getCustomPolicy(),
+            customPolicy);
 }
 
 TEST(NavyConfigTest, BigHash) {

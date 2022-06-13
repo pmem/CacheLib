@@ -73,17 +73,20 @@ Driver::~Driver() {
   scheduler_.reset();
 }
 
-std::pair<Engine&, Engine&> Driver::select(BufferView key,
+std::pair<Engine&, Engine&> Driver::select(HashedKey key,
                                            BufferView value) const {
-  if (key.size() + value.size() < smallItemMaxSize_) {
-    return {*smallItemCache_, *largeItemCache_};
-  } else {
+  if (isItemLarge(key, value)) {
     return {*largeItemCache_, *smallItemCache_};
+  } else {
+    return {*smallItemCache_, *largeItemCache_};
   }
 }
 
-bool Driver::couldExist(BufferView key) {
-  const HashedKey hk{key};
+bool Driver::isItemLarge(HashedKey key, BufferView value) const {
+  return key.key().size() + value.size() > smallItemMaxSize_;
+}
+
+bool Driver::couldExist(HashedKey hk) {
   auto couldExist =
       smallItemCache_->couldExist(hk) || largeItemCache_->couldExist(hk);
   if (!couldExist) {
@@ -92,11 +95,11 @@ bool Driver::couldExist(BufferView key) {
   return couldExist;
 }
 
-Status Driver::insert(BufferView key, BufferView value) {
+Status Driver::insert(HashedKey key, BufferView value) {
   folly::Baton<> done;
   Status cbStatus{Status::Ok};
   auto status = insertAsync(key, value,
-                            [&done, &cbStatus](Status s, BufferView /* key */) {
+                            [&done, &cbStatus](Status s, HashedKey /* key */) {
                               cbStatus = s;
                               done.post();
                             });
@@ -139,13 +142,10 @@ bool Driver::admissionTest(HashedKey hk, BufferView value) const {
   return false;
 }
 
-Status Driver::insertAsync(BufferView key,
-                           BufferView value,
-                           InsertCallback cb) {
+Status Driver::insertAsync(HashedKey hk, BufferView value, InsertCallback cb) {
   insertCount_.inc();
 
-  const HashedKey hk{key};
-  if (key.size() > kMaxKeySize) {
+  if (hk.key().size() > kMaxKeySize) {
     rejectedCount_.inc();
     rejectedBytes_.add(hk.key().size() + value.size());
     return Status::Rejected;
@@ -156,15 +156,21 @@ Status Driver::insertAsync(BufferView key,
   }
 
   scheduler_->enqueueWithKey(
-      [this, cb = std::move(cb), hk, value]() mutable {
-        auto selection = select(hk.key(), value);
-        auto status = selection.first.insert(hk, value);
-        if (status == Status::Retry) {
-          return JobExitCode::Reschedule;
+      [this, cb = std::move(cb), hk, value, skipInsertion = false]() mutable {
+        auto selection = select(hk, value);
+        Status status = Status::Ok;
+        if (!skipInsertion) {
+          status = selection.first.insert(hk, value);
+          if (status == Status::Retry) {
+            return JobExitCode::Reschedule;
+          }
+          skipInsertion = true;
         }
         if (status != Status::DeviceError) {
           auto rs = selection.second.remove(hk);
-          XDCHECK_NE(rs, Status::Retry);
+          if (status == Status::Retry) {
+            return JobExitCode::Reschedule;
+          }
           if (rs != Status::Ok && rs != Status::NotFound) {
             XLOGF(ERR, "Insert failed to remove other: {}", toString(rs));
             status = Status::BadState;
@@ -172,7 +178,7 @@ Status Driver::insertAsync(BufferView key,
         }
 
         if (cb) {
-          cb(status, hk.key());
+          cb(status, hk);
         }
         parcelMemory_.sub(hk.key().size() + value.size());
         concurrentInserts_.dec();
@@ -207,10 +213,9 @@ void Driver::updateLookupStats(Status status) const {
   }
 }
 
-Status Driver::lookup(BufferView key, Buffer& value) {
+Status Driver::lookup(HashedKey hk, Buffer& value) {
   // We do busy wait because we don't expect many retries.
   lookupCount_.inc();
-  const HashedKey hk{key};
   Status status{Status::NotFound};
   while ((status = largeItemCache_->lookup(hk, value)) == Status::Retry) {
     std::this_thread::yield();
@@ -224,9 +229,8 @@ Status Driver::lookup(BufferView key, Buffer& value) {
   return status;
 }
 
-Status Driver::lookupAsync(BufferView key, LookupCallback cb) {
+Status Driver::lookupAsync(HashedKey hk, LookupCallback cb) {
   lookupCount_.inc();
-  const HashedKey hk{key};
   XDCHECK(cb);
 
   scheduler_->enqueueWithKey(
@@ -248,7 +252,7 @@ Status Driver::lookupAsync(BufferView key, LookupCallback cb) {
         }
 
         if (cb) {
-          cb(status, hk.key(), std::move(value));
+          cb(status, hk, std::move(value));
         }
 
         updateLookupStats(status);
@@ -260,15 +264,15 @@ Status Driver::lookupAsync(BufferView key, LookupCallback cb) {
   return Status::Ok;
 }
 
-Status Driver::removeHashedKey(HashedKey hk) {
+Status Driver::removeHashedKey(HashedKey hk, bool& skipSmallItemCache) {
   removeCount_.inc();
-  auto status = smallItemCache_->remove(hk);
-  XDCHECK_NE(status, Status::Retry);
+  Status status = Status::NotFound;
+  if (!skipSmallItemCache) {
+    status = smallItemCache_->remove(hk);
+  }
   if (status == Status::NotFound) {
     status = largeItemCache_->remove(hk);
-    // This assert knows that BlockCache (our implementation) never
-    // returns retry. Otherwise, we have to do something with retry.
-    XDCHECK_NE(status, Status::Retry);
+    skipSmallItemCache = true;
   }
   switch (status) {
   case Status::Ok:
@@ -282,15 +286,25 @@ Status Driver::removeHashedKey(HashedKey hk) {
   return status;
 }
 
-Status Driver::remove(BufferView key) { return removeHashedKey(makeHK(key)); }
+Status Driver::remove(HashedKey hk) {
+  Status status{Status::Ok};
+  bool skipSmallItemCache = false;
+  while ((status = removeHashedKey(hk, skipSmallItemCache)) == Status::Retry) {
+    std::this_thread::yield();
+  }
+  return status;
+}
 
-Status Driver::removeAsync(BufferView key, RemoveCallback cb) {
-  const HashedKey hk{key};
+Status Driver::removeAsync(HashedKey hk, RemoveCallback cb) {
   scheduler_->enqueueWithKey(
-      [this, cb = std::move(cb), hk]() mutable {
-        auto status = removeHashedKey(hk);
+      [this, cb = std::move(cb), hk = hk,
+       skipSmallItemCache = false]() mutable {
+        auto status = removeHashedKey(hk, skipSmallItemCache);
+        if (status == Status::Retry) {
+          return JobExitCode::Reschedule;
+        }
         if (cb) {
-          cb(status, hk.key());
+          cb(status, hk);
         }
         return JobExitCode::Done;
       },

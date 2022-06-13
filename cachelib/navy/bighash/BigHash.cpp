@@ -22,7 +22,9 @@
 #include <mutex>
 #include <shared_mutex>
 
+#include "cachelib/common/Hash.h"
 #include "cachelib/navy/bighash/Bucket.h"
+#include "cachelib/navy/common/Hash.h"
 #include "cachelib/navy/common/Utils.h"
 #include "cachelib/navy/serialization/Serialization.h"
 
@@ -83,12 +85,10 @@ BigHash::BigHash(Config&& config)
 
 BigHash::BigHash(Config&& config, ValidConfigTag)
     : destructorCb_{[this, cb = std::move(config.destructorCb)](
-                        BufferView key,
-                        BufferView value,
-                        DestructorEvent event) {
-        sizeDist_.removeSize(key.size() + value.size());
+                        HashedKey hk, BufferView value, DestructorEvent event) {
+        sizeDist_.removeSize(hk.key().size() + value.size());
         if (cb) {
-          cb(key, value, event);
+          cb(hk, value, event);
         }
       }},
       bucketSize_{config.bucketSize},
@@ -173,13 +173,13 @@ void BigHash::getCounters(const CounterVisitor& visitor) const {
 void BigHash::persist(RecordWriter& rw) {
   XLOG(INFO, "Starting bighash persist");
   serialization::BigHashPersistentData pd;
-  *pd.version_ref() = kFormatVersion;
-  *pd.generationTime_ref() = generationTime_.count();
-  *pd.itemCount_ref() = itemCount_.get();
-  *pd.bucketSize_ref() = bucketSize_;
-  *pd.cacheBaseOffset_ref() = cacheBaseOffset_;
-  *pd.numBuckets_ref() = numBuckets_;
-  *pd.sizeDist_ref() = sizeDist_.getSnapshot();
+  *pd.version() = kFormatVersion;
+  *pd.generationTime() = generationTime_.count();
+  *pd.itemCount() = itemCount_.get();
+  *pd.bucketSize() = bucketSize_;
+  *pd.cacheBaseOffset() = cacheBaseOffset_;
+  *pd.numBuckets() = numBuckets_;
+  *pd.sizeDist() = sizeDist_.getSnapshot();
   serializeProto(pd, rw);
 
   if (bloomFilter_) {
@@ -194,26 +194,26 @@ bool BigHash::recover(RecordReader& rr) {
   XLOG(INFO, "Starting bighash recovery");
   try {
     auto pd = deserializeProto<serialization::BigHashPersistentData>(rr);
-    if (*pd.version_ref() != kFormatVersion) {
+    if (*pd.version() != kFormatVersion) {
       throw std::logic_error{
           folly::sformat("invalid format version {}, expected {}",
-                         *pd.version_ref(),
+                         *pd.version(),
                          kFormatVersion)};
     }
 
     auto configEquals =
-        static_cast<uint64_t>(*pd.bucketSize_ref()) == bucketSize_ &&
-        static_cast<uint64_t>(*pd.cacheBaseOffset_ref()) == cacheBaseOffset_ &&
-        static_cast<uint64_t>(*pd.numBuckets_ref()) == numBuckets_;
+        static_cast<uint64_t>(*pd.bucketSize()) == bucketSize_ &&
+        static_cast<uint64_t>(*pd.cacheBaseOffset()) == cacheBaseOffset_ &&
+        static_cast<uint64_t>(*pd.numBuckets()) == numBuckets_;
     if (!configEquals) {
       auto configStr = serializeToJson(pd);
       XLOGF(ERR, "Recovery config: {}", configStr.c_str());
       throw std::logic_error{"config mismatch"};
     }
 
-    generationTime_ = std::chrono::nanoseconds{*pd.generationTime_ref()};
-    itemCount_.set(*pd.itemCount_ref());
-    sizeDist_ = SizeDistribution{*pd.sizeDist_ref()};
+    generationTime_ = std::chrono::nanoseconds{*pd.generationTime()};
+    itemCount_.set(*pd.itemCount());
+    sizeDist_ = SizeDistribution{*pd.sizeDist()};
     if (bloomFilter_) {
       bloomFilter_->recover<ProtoSerializer>(rr);
       XLOG(INFO, "Recovered bloom filter");
@@ -238,6 +238,16 @@ Status BigHash::insert(HashedKey hk, BufferView value) {
 
   uint32_t oldRemainingBytes = 0;
   uint32_t newRemainingBytes = 0;
+
+  // we copy the items and trigger the destructorCb after bucket lock is
+  // released to avoid possible heavy operations or locks in the destrcutor.
+  std::vector<std::tuple<Buffer, Buffer, DestructorEvent>> removedItems;
+  DestructorCallback cb =
+      [&removedItems](HashedKey key, BufferView val, DestructorEvent event) {
+        // must make a copy for the key, o/w data might be deleted
+        removedItems.emplace_back(Buffer{makeView(key.key())}, val, event);
+      };
+
   {
     std::unique_lock<folly::SharedMutex> lock{getMutex(bid)};
     auto buffer = readBucket(bid);
@@ -248,8 +258,8 @@ Status BigHash::insert(HashedKey hk, BufferView value) {
 
     auto* bucket = reinterpret_cast<Bucket*>(buffer.data());
     oldRemainingBytes = bucket->remainingBytes();
-    removed = bucket->remove(hk, destructorCb_);
-    evicted = bucket->insert(hk, value, destructorCb_);
+    removed = bucket->remove(hk, cb);
+    evicted = bucket->insert(hk, value, cb);
     newRemainingBytes = bucket->remainingBytes();
 
     // rebuild / fix the bloom filter before we move the buffer to do the
@@ -271,6 +281,12 @@ Status BigHash::insert(HashedKey hk, BufferView value) {
       ioErrorCount_.inc();
       return Status::DeviceError;
     }
+  }
+
+  for (const auto& item : removedItems) {
+    destructorCb_(makeHK(std::get<0>(item)) /* key */,
+                  std::get<1>(item).view() /* value */,
+                  std::get<2>(item) /* event */);
   }
 
   if (oldRemainingBytes < newRemainingBytes) {
@@ -346,6 +362,15 @@ Status BigHash::remove(HashedKey hk) {
 
   uint32_t oldRemainingBytes = 0;
   uint32_t newRemainingBytes = 0;
+
+  // we copy the items and trigger the destructorCb after bucket lock is
+  // released to avoid possible heavy operations or locks in the destrcutor.
+  Buffer valueCopy;
+  DestructorCallback cb = [&valueCopy](
+                              HashedKey, BufferView value, DestructorEvent) {
+    valueCopy = Buffer{value};
+  };
+
   {
     std::unique_lock<folly::SharedMutex> lock{getMutex(bid)};
     if (bfReject(bid, hk.keyHash())) {
@@ -360,7 +385,7 @@ Status BigHash::remove(HashedKey hk) {
 
     auto* bucket = reinterpret_cast<Bucket*>(buffer.data());
     oldRemainingBytes = bucket->remainingBytes();
-    if (!bucket->remove(hk, destructorCb_)) {
+    if (!bucket->remove(hk, cb)) {
       bfFalsePositiveCount_.inc();
       return Status::NotFound;
     }
@@ -380,6 +405,10 @@ Status BigHash::remove(HashedKey hk) {
       ioErrorCount_.inc();
       return Status::DeviceError;
     }
+  }
+
+  if (!valueCopy.isNull()) {
+    destructorCb_(hk, valueCopy.view(), DestructorEvent::Removed);
   }
 
   XDCHECK_LE(oldRemainingBytes, newRemainingBytes);

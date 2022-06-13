@@ -49,13 +49,10 @@ enum class OpenStatus {
 
 class RegionDescriptor;
 
-// Region. Has optional client provided classId which is used to map from
-// region to allocator (or other structure). Responsible for open/lock
-// synchronization and keeps count of active readers/writers.
+// Region. Responsible for open/lock synchronization and keeps count of active
+// readers/writers.
 class Region {
  public:
-  static constexpr uint32_t kClassIdMax{(1u << 16) - 1};
-
   // @param id         unique id for the region
   // @param regionSize region size
   Region(RegionId id, uint64_t regionSize)
@@ -64,12 +61,11 @@ class Region {
   // @param d          previously serialized state of Region.
   // @param regionSize size of the region.
   Region(const serialization::Region& d, uint64_t regionSize)
-      : regionId_{static_cast<uint32_t>(*d.regionId_ref())},
+      : regionId_{static_cast<uint32_t>(*d.regionId())},
         regionSize_{regionSize},
-        classId_{static_cast<uint16_t>(*d.classId_ref())},
-        priority_{static_cast<uint16_t>(*d.priority_ref())},
-        lastEntryEndOffset_{static_cast<uint32_t>(*d.lastEntryEndOffset_ref())},
-        numItems_{static_cast<uint32_t>(*d.numItems_ref())} {}
+        priority_{static_cast<uint16_t>(*d.priority())},
+        lastEntryEndOffset_{static_cast<uint32_t>(*d.lastEntryEndOffset())},
+        numItems_{static_cast<uint32_t>(*d.numItems())} {}
 
   // Disable copy constructor to avoid mistakes like below:
   //   auto r = RegionManager.getRegion(rid);
@@ -97,18 +93,6 @@ class Region {
 
   // Closes the region and consume the region descriptor.
   void close(RegionDescriptor&& desc);
-
-  // Associates this region with a RegionAllocator.
-  void setClassId(uint16_t classId) {
-    std::lock_guard<std::mutex> l{lock_};
-    classId_ = classId;
-  }
-
-  // Gets the size class this region is associated with.
-  uint16_t getClassId() const {
-    std::lock_guard<std::mutex> l{lock_};
-    return classId_;
-  }
 
   // Assigns this region a priority. The meaning of priority
   // is dependent on the eviction policy we choose.
@@ -182,7 +166,12 @@ class Region {
   // The callBack function is expected to write to the underlying device.
   // The callback function should return true if successfully flushed the
   // buffer, otherwise it should return false.
-  bool flushBuffer(std::function<bool(RelAddress, BufferView)> callBack);
+  enum FlushRes {
+    kSuccess,
+    kRetryDeviceFailure,
+    kRetryPendingWrites,
+  };
+  FlushRes flushBuffer(std::function<bool(RelAddress, BufferView)> callBack);
 
   // Cleans up the attached buffer by calling the callBack function.
   bool cleanupBuffer(std::function<void(RegionId, BufferView)> callBack);
@@ -239,7 +228,6 @@ class Region {
   const RegionId regionId_{};
   const uint64_t regionSize_{0};
 
-  uint16_t classId_{kClassIdMax};
   uint16_t priority_{0};
   uint16_t flags_{0};
   uint32_t activePhysReaders_{0};

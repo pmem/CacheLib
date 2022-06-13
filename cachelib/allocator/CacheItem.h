@@ -65,7 +65,7 @@ class ChainedItemPayload;
 template <typename C>
 class NvmCache;
 
-template <typename Cache>
+template <typename Cache, typename Handle, typename Iter>
 class CacheChainedAllocs;
 
 template <typename K, typename V, typename C>
@@ -129,7 +129,9 @@ class CACHELIB_PACKED_ATTR CacheItem {
    * the item is freed when it is not linked to access/mm containers
    * and its refcount drops to 0.
    */
-  using Handle = detail::HandleImpl<CacheItem>;
+  using ReadHandle = detail::ReadHandleImpl<CacheItem>;
+  using WriteHandle = detail::WriteHandleImpl<CacheItem>;
+  using Handle = WriteHandle;
   using HandleMaker = std::function<Handle(CacheItem*)>;
 
   /**
@@ -162,27 +164,23 @@ class CACHELIB_PACKED_ATTR CacheItem {
   const Key getKey() const noexcept;
 
   // Readonly memory for this allocation.
-  // TODO: switch the return type to 'const void*' once all the callsites
-  // are modified to use getMemory() and getWritableMemory() correctly
-  void* getMemory() const noexcept;
+  const void* getMemory() const noexcept;
 
   // Writable memory for this allocation. The caller is free to do whatever he
-  // wants with it and needs to ensure thread sage for access into this
+  // wants with it and needs to ensure thread safety for access into this
   // piece of memory.
-  void* getWritableMemory() const;
+  void* getMemory() noexcept;
 
   // Cast item's readonly memory to a readonly user type
-  // TODO: switch the return type to 'const T*' once all the callsites
-  // are modified to use getMemory() and getWritableMemory() correctly
   template <typename T>
-  T* getMemoryAs() const noexcept {
-    return reinterpret_cast<T*>(getMemory());
+  const T* getMemoryAs() const noexcept {
+    return reinterpret_cast<const T*>(getMemory());
   }
 
   // Cast item's writable memory to a writable user type
   template <typename T>
-  T* getWritableMemoryAs() noexcept {
-    return reinterpret_cast<T*>(getWritableMemory());
+  T* getMemoryAs() noexcept {
+    return reinterpret_cast<T*>(getMemory());
   }
 
   // This is the size of the memory allocation requested by the user.
@@ -242,20 +240,27 @@ class CACHELIB_PACKED_ATTR CacheItem {
 
   /**
    * Function to set the timestamp for when to expire an item
-   * Employs a best-effort approach to update the expiryTime. Item's expiry
-   * time can only be updated when the item is a regular item and is part of
-   * the cache and not in the moving state.
+   *
+   * This API will only succeed when an item is a regular item, and user
+   * has already inserted it into the cache (via @insert or @insertOrReplace).
+   * In addition, the item cannot be in a "moving" state.
    *
    * @param expiryTime the expiryTime value to update to
    *
    * @return boolean indicating whether expiry time was successfully updated
+   *         false when item is not linked in cache, or in moving state, or a
+   *         chained item
    */
   bool updateExpiryTime(uint32_t expiryTimeSecs) noexcept;
 
   // Same as @updateExpiryTime, but sets expiry time to @ttl seconds from now.
+  // It has the same restrictions as @updateExpiryTime. An item must be a
+  // regular item and is part of the cache and NOT in the moving state.
   //
   // @param ttl   TTL (from now)
-  // @return Boolean indicating whether expiry time was successfully updated.
+  // @return boolean indicating whether expiry time was successfully updated
+  //         false when item is not linked in cache, or in moving state, or a
+  //         chained item
   bool extendTTL(std::chrono::seconds ttl) noexcept;
 
   // Return the refcount of an item
@@ -283,6 +288,8 @@ class CACHELIB_PACKED_ATTR CacheItem {
   // @throw std::invalid_argument if item is not a chained item or the key
   //        size does not match with the current key
   void changeKey(Key key);
+
+  void* getMemoryInternal() const noexcept;
 
   /**
    * CacheItem's refcount contain admin references, access referneces, and
@@ -418,8 +425,10 @@ class CACHELIB_PACKED_ATTR CacheItem {
   friend AccessContainer;
   friend MMContainer;
   friend NvmCacheT;
-  friend CacheChainedAllocs<CacheAllocator<CacheTrait>>;
-  friend CacheChainedItemIterator<CacheAllocator<CacheTrait>>;
+  template <typename Cache, typename Handle, typename Iter>
+  friend class CacheChainedAllocs;
+  template <typename Cache, typename Item>
+  friend class CacheChainedItemIterator;
   friend class facebook::cachelib::tests::CacheAllocatorTestWrapper;
   template <typename K, typename V, typename C>
   friend class Map;
@@ -460,8 +469,8 @@ class CACHELIB_PACKED_ATTR CacheItem {
 // |  a |       | y |      |
 // |  t |       | l |      |
 // |  i |       | o |      |
-// |  o |       | d |      |
-// |  n |       |   |      |
+// |  o |       | a |      |
+// |  n |       | d |      |
 // | --------------------- |
 template <typename CacheTrait>
 class CACHELIB_PACKED_ATTR CacheChainedItem : public CacheItem<CacheTrait> {
@@ -538,8 +547,11 @@ class CACHELIB_PACKED_ATTR CacheChainedItem : public CacheItem<CacheTrait> {
 
   friend Payload;
   friend CacheAllocator<CacheTrait>;
-  friend CacheChainedAllocs<CacheAllocator<CacheTrait>>;
-  friend CacheChainedItemIterator<CacheAllocator<CacheTrait>>;
+  template <typename Cache, typename Handle, typename Iter>
+  friend class CacheChainedAllocs;
+  template <typename Cache, typename Item>
+  friend class CacheChainedItemIterator;
+  friend NvmCache<CacheAllocator<CacheTrait>>;
   template <typename AllocatorT>
   friend class facebook::cachelib::tests::BaseAllocatorTest;
   FRIEND_TEST(ItemTest, ChainedItemConstruction);

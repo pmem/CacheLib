@@ -3,8 +3,8 @@ id: chained_items
 title: Chained items
 ---
 
-The `allocate()` method allocates memory for data whose size is less than the maximum slab size (4 MB). To cache data whose size exceeds 4 MB, use chained allocations.
-You can also use chained allocations to extend your data's size.
+The `allocate()` method allocates memory for data whose size is less than the maximum allocation size (default: 4MB). To cache data whose size exceeds maximum allocation size, use chained allocations.
+You can also use chained allocations to extend your data's size gradually.
 
 ## Chained allocations
 
@@ -15,7 +15,7 @@ template <typename CacheTrait>;
 class CacheAllocator : public CacheBase {
   public:
     // Allocate memory of a specific size from cache.
-    ItemHandle allocate(
+    WriteHandle allocate(
       PoolId id,
       Key key,
       uint32_t size,
@@ -32,12 +32,12 @@ For example:
 string data("Hello world");
 
 // Allocate memory for the data.
-auto item_handle = cache->allocate(pool_id, "key1", data.size());
+auto handle = cache->allocate(poolId, "key1", data.size());
 ```
 
 The allocated memory can't be changed at runtime. To extend this memory, use chained allocations:
 
-1. Call the `allocate()` method to allocate memory (< 4 MB) for an item (the parent item).
+1. Call the `allocate()` method to allocate memory for an item (the parent item).
 2. Add chained items to the parent item. Call the `allocateChainedItem()` method to allocate memory for these chained items. A chained item doesn't have a key; thus you must use its parent item to access it.
 
 The following is the declaration of the `allocateChainedItem()` method:
@@ -46,7 +46,7 @@ The following is the declaration of the `allocateChainedItem()` method:
 template <typename CacheTrait>;
 class CacheAllocator : public CacheBase {
   public:
-    ItemHandle allocateChainedItem(const ItemHandle& parent, uint32_t size);
+    WriteHandle allocateChainedItem(const ReadHandle& parent, uint32_t size);
   // ...
 };
 ```
@@ -56,7 +56,7 @@ Chained items are inserted in LIFO order. When user reads through the chained it
 
 For example:
 
-```
+```cpp
 auto parent = cache->allocate(0, "test key", 0);
 for (int i = 0; i < 3; i++) {
   auto child = cache->allocateChainedItem(parent, sizeof(int));
@@ -97,7 +97,7 @@ std::unique_ptr<LargeUserData> userData = getLargeUserData();
 size_t userDataSize = sizeof(LargeUserData) + sizeof(int) * userData->length;
 
 // For simplicity, we'll split the user data into 1MB chunks
-size_t numChunks = userDataSize / (1024 * 1024 * 1024);
+size_t numChunks = userDataSize / (1024 * 1024);
 
 struct CustomParentItem {
   size_t numChunks;

@@ -28,11 +28,11 @@ template <typename T, MMLru::Hook<T> T::*HookPtr>
 MMLru::Container<T, HookPtr>::Container(serialization::MMLruObject object,
                                         PtrCompressor compressor)
     : compressor_(std::move(compressor)),
-      lru_(*object.lru_ref(), compressor_),
+      lru_(*object.lru(), compressor_),
       insertionPoint_(compressor_.unCompress(
-          CompressedPtr{*object.compressedInsertionPoint_ref()})),
-      tailSize_(*object.tailSize_ref()),
-      config_(*object.config_ref()) {
+          CompressedPtr{*object.compressedInsertionPoint()})),
+      tailSize_(*object.tailSize()),
+      config_(*object.config()) {
   lruRefreshTime_ = config_.lruRefreshTime;
   nextReconfigureTime_ = config_.mmReconfigureIntervalSecs.count() == 0
                              ? std::numeric_limits<Time>::max()
@@ -61,7 +61,6 @@ bool MMLru::Container<T, HookPtr>::recordAccess(T& node,
     auto func = [this, &node, curr]() {
       reconfigureLocked(curr);
       ensureNotInsertionPoint(node);
-      ++numLockByRecordAccesses_;
       if (node.isInMMContainer()) {
         lru_.moveToHead(node);
         setUpdateTime(node, curr);
@@ -96,19 +95,10 @@ bool MMLru::Container<T, HookPtr>::recordAccess(T& node,
 
 template <typename T, MMLru::Hook<T> T::*HookPtr>
 cachelib::EvictionAgeStat MMLru::Container<T, HookPtr>::getEvictionAgeStat(
-    uint64_t projectedLen) const noexcept {
-  // we only need the projectedAge and warmQueueStat data items so we extract
-  // those and return an EvictionAgeStat instance constructed from that data
-  auto warmQueueStatAndAge = lruMutex_->lock_combine([this, projectedLen]() {
-    auto stat = getEvictionAgeStatLocked(projectedLen);
-    XDCHECK(detail::areBytesSame(stat.hotQueueStat, EvictionStatPerType{}));
-    XDCHECK(detail::areBytesSame(stat.coldQueueStat, EvictionStatPerType{}));
-    return std::make_pair(stat.warmQueueStat, stat.projectedAge);
+    uint64_t projectedLength) const noexcept {
+  return lruMutex_->lock_combine([this, projectedLength]() {
+    return getEvictionAgeStatLocked(projectedLength);
   });
-
-  auto warmQueueStat = warmQueueStatAndAge.first;
-  auto age = warmQueueStatAndAge.second;
-  return EvictionAgeStat{warmQueueStat, {}, {}, age};
 }
 
 template <typename T, MMLru::Hook<T> T::*HookPtr>
@@ -124,8 +114,10 @@ MMLru::Container<T, HookPtr>::getEvictionAgeStatLocked(
   for (size_t numSeen = 0; numSeen < projectedLength && node != nullptr;
        numSeen++, node = lru_.getPrev(*node)) {
   }
-  stat.projectedAge = node ? currTime - getUpdateTime(*node)
-                           : stat.warmQueueStat.oldestElementAge;
+  stat.warmQueueStat.projectedAge = node ? currTime - getUpdateTime(*node)
+                                         : stat.warmQueueStat.oldestElementAge;
+  XDCHECK(detail::areBytesSame(stat.hotQueueStat, EvictionStatPerType{}));
+  XDCHECK(detail::areBytesSame(stat.coldQueueStat, EvictionStatPerType{}));
   return stat;
 }
 
@@ -203,7 +195,6 @@ bool MMLru::Container<T, HookPtr>::add(T& node) noexcept {
   const auto currTime = static_cast<Time>(util::getCurrentTimeSec());
 
   return lruMutex_->lock_combine([this, &node, currTime]() {
-    ++numLockByInserts_;
     if (node.isInMMContainer()) {
       return false;
     }
@@ -259,7 +250,6 @@ void MMLru::Container<T, HookPtr>::removeLocked(T& node) {
 template <typename T, MMLru::Hook<T> T::*HookPtr>
 bool MMLru::Container<T, HookPtr>::remove(T& node) noexcept {
   return lruMutex_->lock_combine([this, &node]() {
-    ++numLockByRemoves_;
     if (!node.isInMMContainer()) {
       return false;
     }
@@ -310,20 +300,20 @@ template <typename T, MMLru::Hook<T> T::*HookPtr>
 serialization::MMLruObject MMLru::Container<T, HookPtr>::saveState()
     const noexcept {
   serialization::MMLruConfig configObject;
-  *configObject.lruRefreshTime_ref() =
+  *configObject.lruRefreshTime() =
       lruRefreshTime_.load(std::memory_order_relaxed);
-  *configObject.lruRefreshRatio_ref() = config_.lruRefreshRatio;
-  *configObject.updateOnWrite_ref() = config_.updateOnWrite;
-  *configObject.updateOnRead_ref() = config_.updateOnRead;
-  *configObject.tryLockUpdate_ref() = config_.tryLockUpdate;
-  *configObject.lruInsertionPointSpec_ref() = config_.lruInsertionPointSpec;
+  *configObject.lruRefreshRatio() = config_.lruRefreshRatio;
+  *configObject.updateOnWrite() = config_.updateOnWrite;
+  *configObject.updateOnRead() = config_.updateOnRead;
+  *configObject.tryLockUpdate() = config_.tryLockUpdate;
+  *configObject.lruInsertionPointSpec() = config_.lruInsertionPointSpec;
 
   serialization::MMLruObject object;
-  *object.config_ref() = configObject;
-  *object.compressedInsertionPoint_ref() =
+  *object.config() = configObject;
+  *object.compressedInsertionPoint() =
       compressor_.compress(insertionPoint_).saveState();
-  *object.tailSize_ref() = tailSize_;
-  *object.lru_ref() = lru_.saveState();
+  *object.tailSize() = tailSize_;
+  *object.lru() = lru_.saveState();
   return object;
 }
 
@@ -340,12 +330,15 @@ MMContainerStat MMLru::Container<T, HookPtr>::getStats() const noexcept {
     // to return them
     return folly::make_array(lru_.size(),
                              tail == nullptr ? 0 : getUpdateTime(*tail),
-                             numLockByInserts_,
-                             numLockByRecordAccesses_,
-                             numLockByRemoves_,
                              lruRefreshTime_.load(std::memory_order_relaxed));
   });
-  return {stat[0], stat[1], stat[2], stat[3], stat[4], stat[5], 0, 0, 0, 0};
+  return {stat[0] /* lru size */,
+          stat[1] /* tail time */,
+          stat[2] /* refresh time */,
+          0,
+          0,
+          0,
+          0};
 }
 
 template <typename T, MMLru::Hook<T> T::*HookPtr>

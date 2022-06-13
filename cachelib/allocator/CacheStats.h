@@ -34,8 +34,12 @@ namespace cachelib {
 struct EvictionStatPerType {
   // the age of the oldest element in seconds
   uint64_t oldestElementAge = 0ULL;
+
   // number of elements in the eviction queue
   uint64_t size = 0ULL;
+
+  // the estimated age after removing a slab worth of elements
+  uint64_t projectedAge = 0ULL;
 };
 
 // stats class for one MM container (a.k.a one allocation class) related to
@@ -46,9 +50,6 @@ struct EvictionAgeStat {
   EvictionStatPerType hotQueueStat;
 
   EvictionStatPerType coldQueueStat;
-
-  // this is the estimated age after removing a slab worth of elements
-  uint64_t projectedAge;
 };
 
 // stats related to evictions for a pool
@@ -71,10 +72,6 @@ struct PoolEvictionAgeStats {
   const EvictionStatPerType& getColdEvictionStat(ClassId cid) const {
     return classEvictionAgeStats.at(cid).coldQueueStat;
   }
-
-  uint64_t getProjectedAge(ClassId cid) const {
-    return classEvictionAgeStats.at(cid).projectedAge;
-  }
 };
 
 // Stats for MM container
@@ -85,15 +82,6 @@ struct MMContainerStat {
   // what is the unix timestamp in seconds of the oldest element existing in
   // the container.
   uint64_t oldestTimeSec;
-
-  // number of lock hits by inserts into the LRU
-  uint64_t numLockByInserts;
-
-  // number of lock hits by recordAccess
-  uint64_t numLockByRecordAccesses;
-
-  // number of lock hits by removes
-  uint64_t numLockByRemoves;
 
   // refresh time for LRU
   uint64_t lruRefreshTime;
@@ -266,6 +254,7 @@ struct SlabReleaseStats {
   uint64_t numMoveSuccesses;
   uint64_t numEvictionAttempts;
   uint64_t numEvictionSuccesses;
+  uint64_t numSlabReleaseStuck;
 };
 
 // Stats for reaper
@@ -331,11 +320,20 @@ struct GlobalCacheStats {
   // number of remove calls that resulted in a ram hit
   uint64_t numCacheRemoveRamHits{0};
 
+  // number of item destructor calls from ram
+  uint64_t numRamDestructorCalls{0};
+
   // number of nvm gets
   uint64_t numNvmGets{0};
 
   // number of nvm misses
   uint64_t numNvmGetMiss{0};
+
+  // number of nvm isses due to internal errors
+  uint64_t numNvmGetMissErrs{0};
+
+  // number of nvm misses due to inflight remove on the same key
+  uint64_t numNvmGetMissDueToInflightRemove{0};
 
   // number of nvm misses that happened synchronously
   uint64_t numNvmGetMissFast{0};
@@ -386,11 +384,26 @@ struct GlobalCacheStats {
   // number of evictions that were already expired
   uint64_t numNvmExpiredEvict{0};
 
+  // number of item destructor calls from nvm
+  uint64_t numNvmDestructorCalls{0};
+
+  // number of RefcountOverflow happens causing item destructor
+  // being skipped in nvm
+  uint64_t numNvmDestructorRefcountOverflow{0};
+
   // number of puts to nvm of a clean item in RAM due to nvm eviction.
   uint64_t numNvmPutFromClean{0};
 
   // attempts made from nvm cache to allocate an item for promotion
   uint64_t numNvmAllocAttempts{0};
+
+  // attempts made from nvm cache to allocate an item for its destructor
+  uint64_t numNvmAllocForItemDestructor{0};
+  // heap allocate errors for item destrutor
+  uint64_t numNvmItemDestructorAllocErrors{0};
+
+  // size of itemRemoved_ hash set in nvm
+  uint64_t numNvmItemRemovedSetSize{0};
 
   // number of attempts to allocate an item
   uint64_t allocAttempts{0};
@@ -409,6 +422,9 @@ struct GlobalCacheStats {
 
   // number of refcount overflows
   uint64_t numRefcountOverflow{0};
+
+  // number of exception occurred inside item destructor
+  uint64_t numDestructorExceptions{0};
 
   // number of allocated and CHAINED items that are parents (i.e.,
   // consisting of at least one chained child)
@@ -440,11 +456,25 @@ struct GlobalCacheStats {
   util::PercentileStats::Estimates nvmEvictionSecondsToExpiry{};
   util::PercentileStats::Estimates nvmPutSize{};
 
+  // time when CacheAllocator structure is created. Whenever a process restarts
+  // and even if cache content is persisted, this will be reset. It's similar
+  // to process uptime. (But alternatively if user explicitly shuts down and
+  // re-attach cache, this will be reset as well)
+  uint64_t cacheInstanceUpTime{0};
+
   // time since the ram cache was created in seconds
   uint64_t ramUpTime{0};
 
   // time since the nvm cache was created in seconds
   uint64_t nvmUpTime{0};
+
+  // If true, it means ram cache is brand new, or it was not restored from a
+  // previous cache instance
+  bool isNewRamCache{false};
+
+  // If true, it means nvm cache is brand new, or it was not restored from a
+  // previous cache instance
+  bool isNewNvmCache{false};
 
   // if nvmcache is currently active and serving gets
   bool nvmCacheEnabled;
@@ -462,6 +492,9 @@ struct GlobalCacheStats {
 
   // Number of times slab release was aborted due to shutdown
   uint64_t numAbortedSlabReleases{0};
+
+  // Number of times slab was skipped when reaper runs
+  uint64_t numSkippedSlabReleases{0};
 
   // current active handles outstanding. This stat should
   // not go to negative. If it's negative, it means we have

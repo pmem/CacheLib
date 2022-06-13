@@ -19,6 +19,7 @@
 
 #include <map>
 
+#include "cachelib/common/Hash.h"
 #include "cachelib/navy/bighash/BigHash.h"
 #include "cachelib/navy/driver/Driver.h"
 #include "cachelib/navy/testing/BufferGen.h"
@@ -241,9 +242,8 @@ TEST(BigHash, DoubleInsert) {
   EXPECT_EQ(Status::Ok, bh.lookup(makeHK("key"), value));
   EXPECT_EQ(makeView("12345"), value.view());
 
-  EXPECT_CALL(
-      helper,
-      call(makeView("key"), makeView("12345"), DestructorEvent::Removed));
+  EXPECT_CALL(helper,
+              call(makeHK("key"), makeView("12345"), DestructorEvent::Removed));
 
   // Insert the same key a second time will overwrite the previous value.
   EXPECT_EQ(Status::Ok, bh.insert(makeHK("key"), makeView("45678")));
@@ -260,10 +260,10 @@ TEST(BigHash, DestructorCallback) {
   MockDestructor helper;
   EXPECT_CALL(
       helper,
-      call(makeView("key 1"), makeView("value 1"), DestructorEvent::Recycled));
+      call(makeHK("key 1"), makeView("value 1"), DestructorEvent::Recycled));
   EXPECT_CALL(
       helper,
-      call(makeView("key 2"), makeView("value 2"), DestructorEvent::Removed));
+      call(makeHK("key 2"), makeView("value 2"), DestructorEvent::Removed));
   config.destructorCb = toCallback(helper);
 
   BigHash bh(std::move(config));
@@ -506,17 +506,17 @@ TEST(BigHash, ConcurrentRead) {
   EXPECT_EQ(Status::Ok, bh.insert(makeHK("key 3"), makeView("3")));
 
   struct MockLookupHelper {
-    MOCK_METHOD2(call, void(BufferView, BufferView));
+    MOCK_METHOD2(call, void(HashedKey, BufferView));
   };
   MockLookupHelper helper;
-  EXPECT_CALL(helper, call(makeView("key 1"), makeView("1")));
-  EXPECT_CALL(helper, call(makeView("key 2"), makeView("2")));
-  EXPECT_CALL(helper, call(makeView("key 3"), makeView("3")));
+  EXPECT_CALL(helper, call(makeHK("key 1"), makeView("1")));
+  EXPECT_CALL(helper, call(makeHK("key 2"), makeView("2")));
+  EXPECT_CALL(helper, call(makeHK("key 3"), makeView("3")));
 
   auto runRead = [&bh, &helper](HashedKey hk) {
     Buffer value;
     EXPECT_EQ(Status::Ok, bh.lookup(hk, value));
-    helper.call(hk.key(), value.view());
+    helper.call(hk, value.view());
   };
 
   auto t1 = std::thread(runRead, makeHK("key 1"));
@@ -562,8 +562,8 @@ TEST(BigHash, BloomFilter) {
   config.bloomFilter = std::make_unique<BloomFilter>(2, 1, 4);
 
   MockDestructor helper;
-  EXPECT_CALL(helper, call(makeView("100"), _, DestructorEvent::Recycled));
-  EXPECT_CALL(helper, call(makeView("101"), _, DestructorEvent::Removed));
+  EXPECT_CALL(helper, call(makeHK("100"), _, DestructorEvent::Recycled));
+  EXPECT_CALL(helper, call(makeHK("101"), _, DestructorEvent::Removed));
   config.destructorCb = toCallback(helper);
 
   BigHash bh(std::move(config));
@@ -673,6 +673,39 @@ TEST(BigHash, BloomFilterRecovery) {
 
     actual = device->releaseRealDevice();
   }
+}
+
+TEST(BigHash, DestructorCallbackOutsideLock) {
+  BigHash::Config config;
+  setLayout(config, 64, 1);
+  auto device = std::make_unique<NiceMock<MockDevice>>(config.cacheSize, 64);
+  config.device = device.get();
+
+  std::atomic<bool> done = false, started = false;
+  config.destructorCb = [&](HashedKey, BufferView, DestructorEvent event) {
+    started = true;
+    // only hangs the insertion not removal
+    while (!done && event == DestructorEvent::Recycled)
+      ;
+  };
+
+  BigHash bh(std::move(config));
+  EXPECT_EQ(Status::Ok, bh.insert(makeHK("key 1"), makeView("value 1")));
+
+  // insert will hang in the destructor, but lock should be released once
+  // destructorCB starts
+  std::thread t([&]() {
+    EXPECT_EQ(Status::Ok, bh.insert(makeHK("key 1"), makeView("value 2")));
+  });
+
+  // wait until destrcutor started, which means bucket lock is released
+  while (!started)
+    ;
+  // remove should not be blocked since bucket lock has been released
+  EXPECT_EQ(Status::Ok, bh.remove(makeHK("key 1")));
+
+  done = true;
+  t.join();
 }
 } // namespace tests
 } // namespace navy

@@ -63,63 +63,6 @@ RandomAPConfig& RandomAPConfig::setAdmProbability(double admProbability) {
   return *this;
 }
 
-void NavyConfig::setAdmissionPolicy(const std::string& admissionPolicy) {
-  if (admissionPolicy == "") {
-    throw std::invalid_argument("admission policy should not be empty");
-  }
-  admissionPolicy_ = admissionPolicy;
-}
-
-void NavyConfig::setAdmissionProbability(double admissionProbability) {
-  if (admissionPolicy_ != kAdmPolicyRandom) {
-    throw std::invalid_argument(
-        folly::sformat("admission probability is only for random policy, but "
-                       "{} policy was set",
-                       admissionPolicy_.empty() ? "no" : admissionPolicy_));
-  }
-  randomAPConfig_.setAdmProbability(admissionProbability);
-}
-
-void NavyConfig::setAdmissionWriteRate(uint64_t admissionWriteRate) {
-  if (admissionPolicy_ != kAdmPolicyDynamicRandom) {
-    throw std::invalid_argument(
-        folly::sformat("admission write rate is only for dynamic_random "
-                       "policy, but {} policy was set",
-                       admissionPolicy_.empty() ? "no" : admissionPolicy_));
-  }
-  dynamicRandomAPConfig_.setAdmWriteRate(admissionWriteRate);
-}
-
-void NavyConfig::setMaxWriteRate(uint64_t maxWriteRate) {
-  if (admissionPolicy_ != kAdmPolicyDynamicRandom) {
-    throw std::invalid_argument(
-        folly::sformat("max write rate is only for dynamic_random "
-                       "policy, but {} policy was set",
-                       admissionPolicy_.empty() ? "no" : admissionPolicy_));
-  }
-  dynamicRandomAPConfig_.setMaxWriteRate(maxWriteRate);
-}
-
-void NavyConfig::setAdmissionSuffixLength(size_t admissionSuffixLen) {
-  if (admissionPolicy_ != kAdmPolicyDynamicRandom) {
-    throw std::invalid_argument(
-        folly::sformat("admission suffix length is only for dynamic_random "
-                       "policy, but {} policy was set",
-                       admissionPolicy_.empty() ? "no" : admissionPolicy_));
-  }
-  dynamicRandomAPConfig_.setAdmSuffixLength(admissionSuffixLen);
-}
-
-void NavyConfig::setAdmissionProbBaseSize(uint32_t admissionProbBaseSize) {
-  if (admissionPolicy_ != kAdmPolicyDynamicRandom) {
-    throw std::invalid_argument(
-        folly::sformat("admission probability base size is only for "
-                       "dynamic_random policy, but {} policy was set",
-                       admissionPolicy_.empty() ? "no" : admissionPolicy_));
-  }
-  dynamicRandomAPConfig_.setAdmProbBaseSize(admissionProbBaseSize);
-}
-
 // file settings
 void NavyConfig::setSimpleFile(const std::string& fileName,
                                uint64_t fileSize,
@@ -147,69 +90,33 @@ void NavyConfig::setRaidFiles(std::vector<std::string> raidPaths,
   truncateFile_ = truncateFile;
 }
 
-// BlockCache settings
 BlockCacheConfig& BlockCacheConfig::enableHitsBasedReinsertion(
     uint8_t hitsThreshold) {
-  if (reinsertionPctThreshold_ > 0) {
-    throw std::invalid_argument(
-        "already set reinsertion percentage threshold, should not set "
-        "reinsertion hits threshold");
-  }
-  reinsertionHitsThreshold_ = hitsThreshold;
+  reinsertionConfig_.enableHitsBased(hitsThreshold);
   return *this;
 }
 
 BlockCacheConfig& BlockCacheConfig::enablePctBasedReinsertion(
     unsigned int pctThreshold) {
-  if (reinsertionHitsThreshold_ > 0) {
-    throw std::invalid_argument(
-        "already set reinsertion hits threshold, should not set reinsertion "
-        "probability threshold");
-  }
-  if (pctThreshold > 100) {
-    throw std::invalid_argument(
-        folly::sformat("reinsertion percentage threshold should between 0 and "
-                       "100, but {} is set",
-                       pctThreshold));
-  }
-  reinsertionPctThreshold_ = pctThreshold;
+  reinsertionConfig_.enablePctBased(pctThreshold);
+  return *this;
+}
+
+BlockCacheConfig& BlockCacheConfig::enableCustomReinsertion(
+    std::shared_ptr<BlockCacheReinsertionPolicy> policy) {
+  reinsertionConfig_.enableCustom(policy);
   return *this;
 }
 
 BlockCacheConfig& BlockCacheConfig::setCleanRegions(
-    uint32_t cleanRegions, bool enableInMemBuffer) noexcept {
+    uint32_t cleanRegions) noexcept {
   cleanRegions_ = cleanRegions;
-  if (enableInMemBuffer) {
-    // Increasing number of in-mem buffers is a short-term mitigation
-    // to avoid reinsertion failure when all buffers in clean regions
-    // are pending flush and the reclaim job is running before flushing complete
-    // (see T93961857, T93959811)
-    numInMemBuffers_ = 2 * cleanRegions;
-  }
+  // Increasing number of in-mem buffers is a short-term mitigation
+  // to avoid reinsertion failure when all buffers in clean regions
+  // are pending flush and the reclaim job is running before flushing complete
+  // (see T93961857, T93959811)
+  numInMemBuffers_ = 2 * cleanRegions;
   return *this;
-}
-
-void NavyConfig::setBlockCacheLru(bool blockCacheLru) {
-  if (!blockCacheLru) {
-    blockCacheConfig_.enableFifo();
-  }
-}
-
-void NavyConfig::setBlockCacheSegmentedFifoSegmentRatio(
-    std::vector<unsigned int> blockCacheSegmentedFifoSegmentRatio) {
-  blockCacheConfig_.enableSegmentedFifo(blockCacheSegmentedFifoSegmentRatio);
-}
-
-void NavyConfig::setBlockCacheReinsertionHitsThreshold(
-    uint8_t blockCacheReinsertionHitsThreshold) {
-  blockCacheConfig_.enableHitsBasedReinsertion(
-      blockCacheReinsertionHitsThreshold);
-}
-
-void NavyConfig::setBlockCacheReinsertionProbabilityThreshold(
-    unsigned int blockCacheReinsertionProbabilityThreshold) {
-  blockCacheConfig_.enablePctBasedReinsertion(
-      blockCacheReinsertionProbabilityThreshold);
 }
 
 // BigHash settings
@@ -229,15 +136,6 @@ BigHashConfig& BigHashConfig::setSizePctAndMaxItemSize(
   return *this;
 }
 
-void NavyConfig::setBigHash(unsigned int bigHashSizePct,
-                            uint32_t bigHashBucketSize,
-                            uint64_t bigHashBucketBfSize,
-                            uint64_t bigHashSmallItemMaxSize) {
-  bigHashConfig_
-      .setSizePctAndMaxItemSize(bigHashSizePct, bigHashSmallItemMaxSize)
-      .setBucketSize(bigHashBucketSize)
-      .setBucketBfSize(bigHashBucketBfSize);
-}
 // job scheduler settings
 void NavyConfig::setNavyReqOrderingShards(uint64_t navyReqOrderingShards) {
   if (navyReqOrderingShards == 0) {
@@ -283,14 +181,14 @@ std::map<std::string, std::string> NavyConfig::serialize() const {
       blockCacheConfig_.isLruEnabled() ? "true" : "false";
   configMap["navyConfig::blockCacheRegionSize"] =
       folly::to<std::string>(blockCacheConfig_.getRegionSize());
-  configMap["navyConfig::blockCacheSizeClasses"] =
-      folly::join(",", blockCacheConfig_.getSizeClasses());
   configMap["navyConfig::blockCacheCleanRegions"] =
       folly::to<std::string>(blockCacheConfig_.getCleanRegions());
   configMap["navyConfig::blockCacheReinsertionHitsThreshold"] =
-      folly::to<std::string>(blockCacheConfig_.getReinsertionHitsThreshold());
+      folly::to<std::string>(
+          blockCacheConfig_.getReinsertionConfig().getHitsThreshold());
   configMap["navyConfig::blockCacheReinsertionPctThreshold"] =
-      folly::to<std::string>(blockCacheConfig_.getReinsertionPctThreshold());
+      folly::to<std::string>(
+          blockCacheConfig_.getReinsertionConfig().getPctThreshold());
   configMap["navyConfig::blockCacheNumInMemBuffers"] =
       folly::to<std::string>(blockCacheConfig_.getNumInMemBuffers());
   configMap["navyConfig::blockCacheDataChecksum"] =

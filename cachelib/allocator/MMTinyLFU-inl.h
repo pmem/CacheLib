@@ -21,8 +21,7 @@ namespace cachelib {
 template <typename T, MMTinyLFU::Hook<T> T::*HookPtr>
 MMTinyLFU::Container<T, HookPtr>::Container(
     serialization::MMTinyLFUObject object, PtrCompressor compressor)
-    : lru_(*object.lrus_ref(), std::move(compressor)),
-      config_(*object.config_ref()) {
+    : lru_(*object.lrus(), std::move(compressor)), config_(*object.config()) {
   lruRefreshTime_ = config_.lruRefreshTime;
   nextReconfigureTime_ = config_.mmReconfigureIntervalSecs.count() == 0
                              ? std::numeric_limits<Time>::max()
@@ -89,7 +88,6 @@ bool MMTinyLFU::Container<T, HookPtr>::recordAccess(T& node,
       return false;
     }
     reconfigureLocked(curr);
-    ++numLockByRecordAccesses_;
     if (!node.isInMMContainer()) {
       return false;
     }
@@ -124,7 +122,8 @@ MMTinyLFU::Container<T, HookPtr>::getEvictionAgeStatLocked(
   for (size_t numSeen = 0; numSeen < projectedLength && it != list.rend();
        ++numSeen, ++it) {
   }
-  stat.projectedAge = it != list.rend() ? curr - getUpdateTime(*it)
+  stat.warmQueueStat.projectedAge = it != list.rend()
+                                        ? curr - getUpdateTime(*it)
                                         : stat.warmQueueStat.oldestElementAge;
   return stat;
 }
@@ -180,7 +179,6 @@ template <typename T, MMTinyLFU::Hook<T> T::*HookPtr>
 bool MMTinyLFU::Container<T, HookPtr>::add(T& node) noexcept {
   const auto currTime = static_cast<Time>(util::getCurrentTimeSec());
   LockHolder l(lruMutex_);
-  ++numLockByInserts_;
   if (node.isInMMContainer()) {
     return false;
   }
@@ -239,7 +237,6 @@ void MMTinyLFU::Container<T, HookPtr>::removeLocked(T& node) noexcept {
 template <typename T, MMTinyLFU::Hook<T> T::*HookPtr>
 bool MMTinyLFU::Container<T, HookPtr>::remove(T& node) noexcept {
   LockHolder l(lruMutex_);
-  ++numLockByRemoves_;
   if (!node.isInMMContainer()) {
     return false;
   }
@@ -304,18 +301,18 @@ template <typename T, MMTinyLFU::Hook<T> T::*HookPtr>
 serialization::MMTinyLFUObject MMTinyLFU::Container<T, HookPtr>::saveState()
     const noexcept {
   serialization::MMTinyLFUConfig configObject;
-  *configObject.lruRefreshTime_ref() =
+  *configObject.lruRefreshTime() =
       lruRefreshTime_.load(std::memory_order_relaxed);
-  *configObject.lruRefreshRatio_ref() = config_.lruRefreshRatio;
-  *configObject.updateOnWrite_ref() = config_.updateOnWrite;
-  *configObject.updateOnRead_ref() = config_.updateOnRead;
-  *configObject.windowToCacheSizeRatio_ref() = config_.windowToCacheSizeRatio;
-  *configObject.tinySizePercent_ref() = config_.tinySizePercent;
+  *configObject.lruRefreshRatio() = config_.lruRefreshRatio;
+  *configObject.updateOnWrite() = config_.updateOnWrite;
+  *configObject.updateOnRead() = config_.updateOnRead;
+  *configObject.windowToCacheSizeRatio() = config_.windowToCacheSizeRatio;
+  *configObject.tinySizePercent() = config_.tinySizePercent;
   // TODO: May be save/restore the counters.
 
   serialization::MMTinyLFUObject object;
-  *object.config_ref() = configObject;
-  *object.lrus_ref() = lru_.saveState();
+  *object.config() = configObject;
+  *object.lrus() = lru_.saveState();
   return object;
 }
 
@@ -325,9 +322,6 @@ MMContainerStat MMTinyLFU::Container<T, HookPtr>::getStats() const noexcept {
   auto* tail = lru_.size() == 0 ? nullptr : lru_.rbegin().get();
   return {lru_.size(),
           tail == nullptr ? 0 : getUpdateTime(*tail),
-          numLockByInserts_,
-          numLockByRecordAccesses_,
-          numLockByRemoves_,
           lruRefreshTime_.load(std::memory_order_relaxed),
           0,
           0,
