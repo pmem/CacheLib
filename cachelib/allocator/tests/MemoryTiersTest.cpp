@@ -125,7 +125,9 @@ class MemoryTiersTest : public AllocatorTest<Allocator> {
     return dramConfig;
   }
 
-  void validatePoolSize(PoolId poolId, std::unique_ptr<LruAllocator>& allocator, size_t expectedSize) {
+  void validatePoolSize(PoolId poolId,
+                        std::unique_ptr<LruAllocator>& allocator,
+                        size_t expectedSize) {
     size_t actualSize = allocator->getPoolSize(poolId);
     EXPECT_EQ(actualSize, expectedSize);
   }
@@ -325,10 +327,11 @@ TEST_F(LruMemoryTiersTest, TestPoolAllocationSmall) {
 }
 
 TEST_F(LruMemoryTiersTest, TestPoolAllocation8GB) {
-  LruAllocatorConfig cfg =
-      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                            {std::make_tuple(1, 0), std::make_tuple(3, 0)}, 8 * GB);
-  basicCheck(cfg, {defaultDaxPath, defaultPmemPath});
+  size_t totalCahceSize = 8 * GB;
+  LruAllocatorConfig cfg = createTestCacheConfig(
+      {defaultDaxPath, defaultPmemPath},
+      {std::make_tuple(1, 0), std::make_tuple(3, 0)}, true, totalCahceSize);
+  basicCheck(cfg, {defaultDaxPath, defaultPmemPath}, totalCahceSize);
 
   std::unique_ptr<LruAllocator> alloc = std::unique_ptr<LruAllocator>(
       new LruAllocator(LruAllocator::SharedMemNew, cfg));
