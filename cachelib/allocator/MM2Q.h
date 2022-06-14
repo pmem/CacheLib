@@ -450,6 +450,9 @@ class MM2Q {
     template <typename F>
     void withEvictionIterator(F&& f);
 
+    template <typename F>
+    void withPromotionIterator(F&& f);
+
     // get the current config as a copy
     Config getConfig() const;
 

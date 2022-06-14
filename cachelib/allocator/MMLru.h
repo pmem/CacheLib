@@ -340,6 +340,9 @@ class MMLru {
     template <typename F>
     void withEvictionIterator(F&& f);
 
+    template <typename F>
+    void withPromotionIterator(F&& f);
+
     // get copy of current config
     Config getConfig() const;
 
