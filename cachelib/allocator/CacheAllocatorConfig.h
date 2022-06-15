@@ -597,6 +597,8 @@ class CacheAllocatorConfig {
   // skip promote children items in chained when parent fail to promote
   bool skipPromoteChildrenWhenParentFailed{false};
 
+  bool disableEvictionToMemory{false}; // do not attempt evicting to next memory tier
+
   double evictionSlabWatermark{100.0}; // trigger slab eviction when this percentage of slabs are allocated
   double lowEvictionAcWatermark{98.0};   // trigger eviction when this percentage of allocation class is occupied
   double highEvictionAcWatermark{95.0};

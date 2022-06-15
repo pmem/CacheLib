@@ -271,6 +271,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
 
   allocatorConfig_.cacheName = "cachebench";
 
+  allocatorConfig_.disableEvictionToMemory = config_.disableEvictionToMemory;
   allocatorConfig_.evictionSlabWatermark = config_.evictionSlabWatermark;
   allocatorConfig_.lowEvictionAcWatermark = config_.lowEvictionAcWatermark;
   allocatorConfig_.highEvictionAcWatermark = config_.highEvictionAcWatermark;

@@ -1608,6 +1608,9 @@ class CacheAllocator : public CacheBase {
   //         handle to the item. On failure an empty handle. 
   WriteHandle tryEvictToNextMemoryTier(Item& item);
 
+  bool shouldEvictToNextMemoryTier(TierId sourceTierId,
+        TierId targetTierId, PoolId pid, Item& item);
+
   // Deserializer CacheAllocatorMetadata and verify the version
   //
   // @param  deserializer   Deserializer object

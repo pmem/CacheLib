@@ -1695,14 +1695,28 @@ bool CacheAllocator<CacheTrait>::shouldWriteToNvmCacheExclusive(
 }
 
 template <typename CacheTrait>
+bool CacheAllocator<CacheTrait>::shouldEvictToNextMemoryTier(
+    TierId sourceTierId, TierId targetTierId, PoolId pid, Item& item)
+{
+  if (config_.disableEvictionToMemory)
+    return false;
+
+  // TODO: implement more advanced admission policies for memory tiers
+  return true;
+}
+
+template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::WriteHandle
 CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
     TierId tid, PoolId pid, Item& item) {
   if(item.isChainedItem()) return {}; // TODO: We do not support ChainedItem yet
   if(item.isExpired()) return acquire(&item);
 
-  TierId nextTier = tid; // TODO - calculate this based on some admission policy
+  TierId nextTier = tid;
   while (++nextTier < numTiers_) { // try to evict down to the next memory tiers
+    if (!shouldEvictToNextMemoryTier(tid, nextTier, pid, item))
+      continue;
+
     // allocateInternal might trigger another eviction
     auto newItemHdl = allocateInternalTier(nextTier, pid,
                      item.getKey(),

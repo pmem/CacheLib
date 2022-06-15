@@ -98,6 +98,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, enableItemDestructorCheck);
   JSONSetVal(configJson, enableItemDestructor);
 
+  JSONSetVal(configJson, disableEvictionToMemory);
   JSONSetVal(configJson, evictionSlabWatermark);
   JSONSetVal(configJson, lowEvictionAcWatermark);
   JSONSetVal(configJson, highEvictionAcWatermark);

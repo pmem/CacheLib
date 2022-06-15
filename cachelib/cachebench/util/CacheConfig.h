@@ -291,6 +291,8 @@ struct CacheConfig : public JSONConfig {
   // this verifies whether the feature affects throughputs.
   bool enableItemDestructor{false};
 
+  bool disableEvictionToMemory{false};
+
   double evictionSlabWatermark{100.0}; // trigger slab eviction when this percentage of slabs are allocated
   double lowEvictionAcWatermark{98.0};   // trigger eviction when this percentage of allocation class is occupied
   double highEvictionAcWatermark{95.0}; // stop eviction when this percentage of allocation class is occupied
