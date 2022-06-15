@@ -298,6 +298,14 @@ struct BackgroundEvictionStats {
 
   // eviction size
   uint64_t evictionSize{0};
+
+  BackgroundEvictionStats& operator+=(const BackgroundEvictionStats& rhs) {
+    numEvictedItems += rhs.numEvictedItems;
+    runCount += rhs.runCount;
+    totalClasses += rhs.totalClasses;
+    evictionSize += rhs.evictionSize;
+    return *this;
+  }
 };
 
 // CacheMetadata type to export

@@ -65,13 +65,14 @@ class BackgroundEvictor : public PeriodicWorker {
   //                            this tier
   // @param tier id             memory tier to perform eviction on 
   BackgroundEvictor(Cache& cache,
-                    std::shared_ptr<BackgroundEvictorStrategy> strategy,
-                    unsigned int tid);
+                    std::shared_ptr<BackgroundEvictorStrategy> strategy);
 
   ~BackgroundEvictor() override;
   
   BackgroundEvictionStats getStats() const noexcept;
   std::map<uint32_t,uint64_t> getClassStats() const noexcept;
+
+  void setAssignedMemory(std::vector<std::tuple<TierId, PoolId, ClassId>> &&assignedMemory);
 
  private:
    std::map<uint32_t,uint64_t> evictions_per_class_;
@@ -82,13 +83,15 @@ class BackgroundEvictor : public PeriodicWorker {
   
   Cache& cache_;
   std::shared_ptr<BackgroundEvictorStrategy> strategy_;
-  unsigned int tid_;
 
   // implements the actual logic of running the background evictor
   void work() override final;
-  void checkAndRun(PoolId pid);
+  void checkAndRun();
 
   BackgroundEvictorStats stats;
+
+  std::vector<std::tuple<TierId, PoolId, ClassId>> assignedMemory_;
+  folly::DistributedMutex mutex;
 };
 } // namespace cachelib
 } // namespace facebook

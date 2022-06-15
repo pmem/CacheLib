@@ -33,7 +33,8 @@ size_t FreeThresholdStrategy::calculateBatchSize(const CacheBase& cache,
   if (cache.slabsAllocatedPercentage(tid) < evictionSlabWatermark)
     return 0;
 
-  if (cache.acAllocatedPercentage(tid, pid, cid) <= highEvictionAcWatermark)
+  auto acOccupied = cache.acAllocatedPercentage(tid, pid, cid);
+  if (acOccupied <= highEvictionAcWatermark)
     return 0;
 
   // TODO: we can try to adjust it to not evict to many elements

@@ -5,6 +5,8 @@
     "poolRebalanceIntervalSec": 0,
     "persistedCacheDir": "/tmp/mem-tier",
     "htBucketPower": 28,
+    "backgroundEvictorIntervalMilSec": 10,
+    "evictorThreads": 4,
     "memoryTiers" : [
       {
         "ratio": 1

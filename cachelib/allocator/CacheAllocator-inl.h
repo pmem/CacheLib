@@ -329,7 +329,7 @@ void CacheAllocator<CacheTrait>::initWorkers() {
   if (config_.backgroundEvictorEnabled()) {
       startNewBackgroundEvictor(config_.backgroundEvictorInterval,
                                 config_.backgroundEvictorStrategy,
-                                0); //right now default to tier 0);
+                                config_.backgroundEvictorThreads);
   }
 }
 
@@ -353,7 +353,7 @@ CacheAllocator<CacheTrait>::allocate(PoolId poolId,
     creationTime = util::getCurrentTimeSec();
   }
   return allocateInternal(poolId, key, size, creationTime,
-                          ttlSecs == 0 ? 0 : creationTime + ttlSecs);
+                          ttlSecs == 0 ? 0 : creationTime + ttlSecs, false);
 }
 
 template <typename CacheTrait>
@@ -366,13 +366,23 @@ bool CacheAllocator<CacheTrait>::shouldWakeupBgEvictor(TierId tid, PoolId pid, C
 }
 
 template <typename CacheTrait>
+size_t CacheAllocator<CacheTrait>::backgroundEvictorId(TierId tid, PoolId pid, ClassId cid)
+{
+  XDCHECK(backgroundEvictor_.size());
+
+  // TODO: came up with some better sharding (use some hashing)
+  return (tid + pid + cid) % backgroundEvictor_.size();
+}
+
+template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::ItemHandle
 CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
                                              PoolId pid,
                                              typename Item::Key key,
                                              uint32_t size,
                                              uint32_t creationTime,
-                                             uint32_t expiryTime) {
+                                             uint32_t expiryTime,
+                                             bool fromEvictorThread) {
   util::LatencyTracker tracker{stats().allocateLatency_};
 
   SCOPE_FAIL { stats_.invalidAllocs.inc(); };
@@ -388,8 +398,8 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
 
   void* memory = allocator_[tid]->allocate(pid, requiredSize);
 
-  if (backgroundEvictor_ && (memory == nullptr || shouldWakeupBgEvictor(tid, pid, cid))) {
-    backgroundEvictor_->wakeUp();
+  if (backgroundEvictor_.size() && !fromEvictorThread && (memory == nullptr || shouldWakeupBgEvictor(tid, pid, cid))) {
+    backgroundEvictor_[backgroundEvictorId(tid, pid, cid)]->wakeUp();
   }
 
   // TODO: Today disableEviction means do not evict from memory (DRAM).
@@ -447,7 +457,11 @@ double CacheAllocator<CacheTrait>::acAllocatedPercentage(TierId tid, PoolId pid,
 {
   const auto &ac = allocator_[tid]->getPool(pid).getAllocationClassFor(cid);
   auto acAllocatedSize = ac.currAllocSize_.load(std::memory_order_relaxed);
-  auto acUsableSize = ac.curAllocatedSlabs_.load(std::memory_order_relaxed);
+  auto acUsableSize = ac.curAllocatedSlabs_.load(std::memory_order_relaxed) * Slab::kSize;
+
+  if (acUsableSize == 0)
+    return 0.0;
+
   return 100.0 * static_cast<double>(acAllocatedSize) / static_cast<double>(acUsableSize);
 }
 
@@ -528,9 +542,10 @@ CacheAllocator<CacheTrait>::allocateInternal(PoolId pid,
                                              typename Item::Key key,
                                              uint32_t size,
                                              uint32_t creationTime,
-                                             uint32_t expiryTime) {
+                                             uint32_t expiryTime,
+                                             bool fromEvictorThread) {
   auto tid = getTargetTierForItem(pid, key, size, creationTime, expiryTime);
-  return allocateInternalTier(tid, pid, key, size, creationTime, expiryTime);
+  return allocateInternalTier(tid, pid, key, size, creationTime, expiryTime, fromEvictorThread);
 }
 
 template <typename CacheTrait>
@@ -1708,8 +1723,7 @@ bool CacheAllocator<CacheTrait>::shouldEvictToNextMemoryTier(
 template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::WriteHandle
 CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
-    TierId tid, PoolId pid, Item& item) {
-  if(item.isChainedItem()) return {}; // TODO: We do not support ChainedItem yet
+    TierId tid, PoolId pid, Item& item, bool fromEvictorThread) {
   if(item.isExpired()) return acquire(&item);
 
   TierId nextTier = tid;
@@ -1722,7 +1736,8 @@ CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
                      item.getKey(),
                      item.getSize(),
                      item.getCreationTime(),
-                     item.getExpiryTime());
+                     item.getExpiryTime(),
+                     fromEvictorThread);
 
     if (newItemHdl) {
       XDCHECK_EQ(newItemHdl->getSize(), item.getSize());
@@ -1736,10 +1751,10 @@ CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
 
 template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::WriteHandle
-CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(Item& item) {
+CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(Item& item, bool fromEvictorThread) {
     auto tid = getTierId(item);
     auto pid = allocator_[tid]->getAllocInfo(item.getMemory()).poolId;
-    return tryEvictToNextMemoryTier(tid, pid, item);
+    return tryEvictToNextMemoryTier(tid, pid, item, fromEvictorThread);
 }
 
 template <typename CacheTrait>
@@ -2382,6 +2397,11 @@ PoolId CacheAllocator<CacheTrait>::addPool(
   setRebalanceStrategy(pid, std::move(rebalanceStrategy));
   setResizeStrategy(pid, std::move(resizeStrategy));
 
+  if (backgroundEvictor_.size()) {
+    for (size_t id = 0; id < backgroundEvictor_.size(); id++)
+      backgroundEvictor_[id]->setAssignedMemory(getAssignedMemoryToBgEvictor(id));
+  }
+
   return pid;
 }
 
@@ -2504,7 +2524,7 @@ std::set<PoolId> CacheAllocator<CacheTrait>::getRegularPoolIds() const {
   folly::SharedMutex::ReadHolder r(poolsResizeAndRebalanceLock_);
   // TODO - get rid of the duplication - right now, each tier
   // holds pool objects with mostly the same info
-  return filterCompactCachePools(allocator_[0]->getPoolIds());
+  return filterCompactCachePools(allocator_[currentTier()]->getPoolIds());
 }
 
 template <typename CacheTrait>
@@ -2868,7 +2888,8 @@ CacheAllocator<CacheTrait>::allocateNewItemForOldItem(const Item& oldItem) {
                                      oldItem.getKey(),
                                      oldItem.getSize(),
                                      oldItem.getCreationTime(),
-                                     oldItem.getExpiryTime());
+                                     oldItem.getExpiryTime(),
+                                     false);
   if (!newItemHdl) {
     return {};
   }
@@ -3001,14 +3022,14 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
 template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::ItemHandle
 CacheAllocator<CacheTrait>::evictNormalItem(Item& item,
-                                            bool skipIfTokenInvalid) {
+                                            bool skipIfTokenInvalid, bool fromEvictorThread) {
   XDCHECK(item.isMoving());
 
   if (item.isOnlyMoving()) {
     return ItemHandle{};
   }
 
-  auto evictHandle = tryEvictToNextMemoryTier(item);
+  auto evictHandle = tryEvictToNextMemoryTier(item, fromEvictorThread);
   if(evictHandle) return evictHandle;
 
   auto predicate = [](const Item& it) { return it.getRefCount() == 0; };
@@ -3812,11 +3833,42 @@ bool CacheAllocator<CacheTrait>::startNewReaper(
 }
 
 template <typename CacheTrait>
+auto CacheAllocator<CacheTrait>::getAssignedMemoryToBgEvictor(size_t evictorId)
+{
+  std::vector<std::tuple<TierId, PoolId, ClassId>> asssignedMemory;
+  // TODO: for now, only evict from tier 0
+  for (TierId tid = 0; tid < 1; tid++) {
+    auto pools = filterCompactCachePools(allocator_[tid]->getPoolIds());
+    for (const auto pid : pools) {
+      const auto& mpStats = getPoolByTid(pid,tid).getStats();
+      for (const auto cid : mpStats.classIds) {
+        if (backgroundEvictorId(tid, pid, cid) == evictorId) {
+          asssignedMemory.emplace_back(tid, pid, cid);
+        }
+      }
+    }
+  }
+  return asssignedMemory;
+}
+
+template <typename CacheTrait>
 bool CacheAllocator<CacheTrait>::startNewBackgroundEvictor(
     std::chrono::milliseconds interval,
     std::shared_ptr<BackgroundEvictorStrategy> strategy,
-    unsigned int tid ) {
-  return startNewWorker("BackgroundEvictor", backgroundEvictor_, interval, strategy, tid);
+    size_t threads) {
+  XDCHECK(threads > 0);
+  backgroundEvictor_.resize(threads);
+  bool result = true;
+
+  for (size_t i = 0; i < threads; i++) {
+    auto ret = startNewWorker("BackgroundEvictor" + std::to_string(i), backgroundEvictor_[i], interval, strategy);
+    result = result && ret;
+
+    if (result) {
+      backgroundEvictor_[i]->setAssignedMemory(getAssignedMemoryToBgEvictor(i));
+    }
+  }
+  return result;
 }
 
 template <typename CacheTrait>
@@ -3848,8 +3900,13 @@ bool CacheAllocator<CacheTrait>::stopReaper(std::chrono::seconds timeout) {
 
 template <typename CacheTrait>
 bool CacheAllocator<CacheTrait>::stopBackgroundEvictor(
-    std::chrono::seconds timeout) {
-  return stopWorker("BackgroundEvictor", backgroundEvictor_, timeout);
+    std::chrono::seconds timeout) {  
+  bool result = true;
+  for (size_t i = 0; i < backgroundEvictor_.size(); i++) {
+    auto ret = stopWorker("BackgroundEvictor" + std::to_string(i), backgroundEvictor_[i], timeout);
+    result = result && ret;
+  }
+  return result;
 }
 
 template <typename CacheTrait>

@@ -307,6 +307,8 @@ struct CacheConfig : public JSONConfig {
   double numDuplicateElements{0.0}; // inclusivness of the cache
   double syncPromotion{0.0}; // can promotion be done synchronously in user thread
 
+  uint64_t evictorThreads{1};
+
   uint64_t evictionHotnessThreshold{200};
 
   explicit CacheConfig(const folly::dynamic& configJson);

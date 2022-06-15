@@ -695,6 +695,8 @@ class CacheAllocator : public CacheBase {
                  std::shared_ptr<RebalanceStrategy> resizeStrategy = nullptr,
                  bool ensureProvisionable = false);
 
+  auto getAssignedMemoryToBgEvictor(size_t evictorId);
+
   // update an existing pool's config
   //
   // @param pid       pool id for the pool to be updated
@@ -947,7 +949,7 @@ class CacheAllocator : public CacheBase {
                       util::Throttler::Config reaperThrottleConfig);
   
   bool startNewBackgroundEvictor(std::chrono::milliseconds interval,
-                      std::shared_ptr<BackgroundEvictorStrategy> strategy, unsigned int tid);
+                      std::shared_ptr<BackgroundEvictorStrategy> strategy, size_t threads);
 
   // Stop existing workers with a timeout
   bool stopPoolRebalancer(std::chrono::seconds timeout = std::chrono::seconds{
@@ -1045,12 +1047,20 @@ class CacheAllocator : public CacheBase {
   
   // returns the background evictor
   BackgroundEvictionStats getBackgroundEvictorStats() const {
-    auto stats = backgroundEvictor_ ? backgroundEvictor_->getStats() : BackgroundEvictionStats{};
+    auto stats = BackgroundEvictionStats{};
+    for (auto &bg : backgroundEvictor_)
+      stats += bg->getStats();
     return stats;
   }
   
   std::map<uint32_t,uint64_t> getBackgroundEvictorClassStats() const {
-    auto stats = backgroundEvictor_ ? backgroundEvictor_->getClassStats() : std::map<uint32_t,uint64_t>();
+    auto stats = std::map<uint32_t,uint64_t>();
+
+    if (backgroundEvictor_.size()) stats = backgroundEvictor_[0]->getClassStats();
+    // XXX: implement aggregation
+    // for (auto &bg : backgroundEvictor_)
+    //   stats += bg->getClassStats();
+
     return stats;
   }
 
@@ -1197,6 +1207,7 @@ class CacheAllocator : public CacheBase {
   double acAllocatedPercentage(TierId tid, PoolId pid, ClassId cid) const;
 
   bool shouldWakeupBgEvictor(TierId tid, PoolId pid, ClassId cid);
+  size_t backgroundEvictorId(TierId tid, PoolId pid, ClassId cid);
 
 
   // this ensures that we dont introduce any more hidden fields like vtable by
@@ -1347,7 +1358,8 @@ class CacheAllocator : public CacheBase {
                               Key key,
                               uint32_t size,
                               uint32_t creationTime,
-                              uint32_t expiryTime);
+                              uint32_t expiryTime,
+                              bool fromEvictorThread);
 
   // create a new cache allocation on specific memory tier.
   // For description see allocateInternal.
@@ -1358,7 +1370,8 @@ class CacheAllocator : public CacheBase {
                               Key key,
                               uint32_t size,
                               uint32_t creationTime,
-                              uint32_t expiryTime);
+                              uint32_t expiryTime,
+                              bool fromEvictorThread);
 
   // Allocate a chained item
   //
@@ -1598,7 +1611,7 @@ class CacheAllocator : public CacheBase {
   //
   // @return valid handle to the item. This will be the last
   //         handle to the item. On failure an empty handle.
-  WriteHandle tryEvictToNextMemoryTier(TierId tid, PoolId pid, Item& item);
+  WriteHandle tryEvictToNextMemoryTier(TierId tid, PoolId pid, Item& item, bool fromEvictorThread);
 
   // Try to move the item down to the next memory tier
   //
@@ -1606,7 +1619,7 @@ class CacheAllocator : public CacheBase {
   //
   // @return valid handle to the item. This will be the last
   //         handle to the item. On failure an empty handle. 
-  WriteHandle tryEvictToNextMemoryTier(Item& item);
+  WriteHandle tryEvictToNextMemoryTier(Item& item, bool fromEvictorThread);
 
   bool shouldEvictToNextMemoryTier(TierId sourceTierId,
         TierId targetTierId, PoolId pid, Item& item);
@@ -1736,7 +1749,7 @@ class CacheAllocator : public CacheBase {
   //
   // @return last handle for corresponding to item on success. empty handle on
   // failure. caller can retry if needed.
-  ItemHandle evictNormalItem(Item& item, bool skipIfTokenInvalid = false);
+  ItemHandle evictNormalItem(Item& item, bool skipIfTokenInvalid = false, bool fromEvictorThread = false);
 
   // Helper function to evict a child item for slab release
   // As a side effect, the parent item is also evicted
@@ -1795,7 +1808,7 @@ class CacheAllocator : public CacheBase {
 
     for (Item *candidate : candidates) {
       auto toReleaseHandle =
-          evictNormalItem(*candidate, true /* skipIfTokenInvalid */);
+          evictNormalItem(*candidate, true /* skipIfTokenInvalid */, true /* from BG thread */);
       auto ref = candidate->unmarkMoving();
 
       if (toReleaseHandle || ref == 0u) {
@@ -2152,7 +2165,7 @@ class CacheAllocator : public CacheBase {
   std::unique_ptr<MemoryMonitor> memMonitor_;
   
   // background evictor
-  std::unique_ptr<BackgroundEvictor<CacheT>> backgroundEvictor_;
+  std::vector<std::unique_ptr<BackgroundEvictor<CacheT>>> backgroundEvictor_;
 
   // check whether a pool is a slabs pool
   std::array<bool, MemoryPoolManager::kMaxPools> isCompactCachePool_{};

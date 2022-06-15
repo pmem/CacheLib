@@ -22,11 +22,10 @@ namespace cachelib {
 
 template <typename CacheT>
 BackgroundEvictor<CacheT>::BackgroundEvictor(Cache& cache,
-                               std::shared_ptr<BackgroundEvictorStrategy> strategy,
-                               unsigned int tid)
+                               std::shared_ptr<BackgroundEvictorStrategy> strategy)
     : cache_(cache),
-      strategy_(strategy),
-      tid_(tid) {
+      strategy_(strategy)
+{
 }
 
 template <typename CacheT>
@@ -35,47 +34,64 @@ BackgroundEvictor<CacheT>::~BackgroundEvictor() { stop(std::chrono::seconds(0));
 template <typename CacheT>
 void BackgroundEvictor<CacheT>::work() {
   try {
-      for (const auto pid : cache_.getRegularPoolIds()) {
-        checkAndRun(pid);
-      }
+    checkAndRun();
   } catch (const std::exception& ex) {
     XLOGF(ERR, "BackgroundEvictor interrupted due to exception: {}", ex.what());
   }
 }
 
+template <typename CacheT>
+void BackgroundEvictor<CacheT>::setAssignedMemory(std::vector<std::tuple<TierId, PoolId, ClassId>> &&assignedMemory)
+{
+  XLOG(INFO, "Memory assigned to background worker:");
+  for (auto [tid, pid, cid] : assignedMemory) {
+    XLOGF(INFO, "Tid: {}, Pid: {}, Cid: {}", tid, pid, cid);
+  }
+
+  mutex.lock_combine([this, &assignedMemory]{
+    this->assignedMemory_ = std::move(assignedMemory);
+  });
+}
+
 // Look for classes that exceed the target memory capacity
 // and return those for eviction
 template <typename CacheT>
-void BackgroundEvictor<CacheT>::checkAndRun(PoolId pid) {    
-  const auto& mpStats = cache_.getPoolByTid(pid,tid_).getStats();
+void BackgroundEvictor<CacheT>::checkAndRun() {
+  auto assignedMemory = mutex.lock_combine([this]{
+    return assignedMemory_;
+  });
+
   unsigned int evictions = 0;
-  unsigned int classes = 0;
-  for (auto& cid : mpStats.classIds) {
-      classes++;
-      auto batch = strategy_->calculateBatchSize(cache_,tid_,pid,cid);
-      if (!batch) {
-        continue;
-      }
+  std::set<ClassId> classes{};
 
-      stats.evictionSize.add(batch * mpStats.acStats.at(cid).allocSize);
-    
-      //try evicting BATCH items from the class in order to reach free target
-      auto evicted =
-          BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
-              tid_,pid,cid,batch);
-      evictions += evicted;
+  for (const auto [tid, pid, cid] : assignedMemory) {
+    classes.insert(cid);
+    const auto& mpStats = cache_.getPoolByTid(pid,tid).getStats();
+    auto batch = strategy_->calculateBatchSize(cache_,tid,pid,cid);
+    if (!batch) {
+      continue;
+    }
 
-      const size_t cid_id = (size_t)mpStats.acStats.at(cid).allocSize;
-      auto it = evictions_per_class_.find(cid_id);
-      if (it != evictions_per_class_.end()) {
-          it->second += evicted;
-      } else {
-          evictions_per_class_[cid_id] = 0;
-      }
+    stats.evictionSize.add(batch * mpStats.acStats.at(cid).allocSize);
+  
+    //try evicting BATCH items from the class in order to reach free target
+    auto evicted =
+        BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
+            tid,pid,cid,batch);
+    evictions += evicted;
+
+    const size_t cid_id = (size_t)mpStats.acStats.at(cid).allocSize;
+    auto it = evictions_per_class_.find(cid_id);
+    if (it != evictions_per_class_.end()) {
+        it->second += evicted;
+    } else {
+        evictions_per_class_[cid_id] = 0;
+    }
   }
+
   stats.numTraversals.inc();
   stats.numEvictedItems.add(evictions);
-  stats.totalClasses.add(classes);
+  stats.totalClasses.add(classes.size());
 }
 
 template <typename CacheT>

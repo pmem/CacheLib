@@ -69,7 +69,8 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   
   allocatorConfig_.enableBackgroundEvictor(
       config_.getBackgroundEvictorStrategy(),
-      std::chrono::milliseconds(config_.backgroundEvictorIntervalMilSec));
+      std::chrono::milliseconds(config_.backgroundEvictorIntervalMilSec),
+      config_.evictorThreads);
 
   if (config_.moveOnSlabRelease && movingSync != nullptr) {
     allocatorConfig_.enableMovingOnSlabRelease(

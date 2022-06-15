@@ -207,7 +207,6 @@ void AllocationClass::setupCurrentSlabLocked() {
   currSlab_ = slab;
   currOffset_ = 0;
   allocatedSlabs_.push_back(slab);
-  curAllocatedSlabs_.fetch_add(1, std::memory_order_relaxed);
 }
 
 const Slab* AllocationClass::getSlabForReleaseLocked() const noexcept {
