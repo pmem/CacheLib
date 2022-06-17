@@ -285,16 +285,17 @@ TEST_F(LruMemoryTiersTest, TestPoolAllocations) {
       std::unique_ptr<LruAllocator> alloc = std::unique_ptr<LruAllocator>(
           new LruAllocator(LruAllocator::SharedMemNew, config));
       auto pool =
-          alloc->addPool("default", alloc->getCacheMemoryStats().cacheSize);
+          alloc->addPool("maxPoolSize", alloc->getCacheMemoryStats().cacheSize);
       validatePoolSize(pool, alloc, alloc->getCacheMemoryStats().cacheSize);
     }
     std::unique_ptr<LruAllocator> alloc = std::unique_ptr<LruAllocator>(
         new LruAllocator(LruAllocator::SharedMemNew, config));
     if (isSizeValid) {
-      auto pool = alloc->addPool("default", poolSize);
+      auto pool = alloc->addPool("validPoolSize", poolSize);
       validatePoolSize(pool, alloc, poolSize);
     } else {
-      EXPECT_THROW(alloc->addPool("default", poolSize), std::invalid_argument);
+      EXPECT_THROW(alloc->addPool("invalidPoolSize", poolSize),
+                   std::invalid_argument);
     }
   };
 
@@ -302,12 +303,13 @@ TEST_F(LruMemoryTiersTest, TestPoolAllocations) {
     for (auto totalCacheSize : totalCacheSizes) {
       if (totalCacheSize <= nTiers * Slab::kSize * 4)
         continue;
-      LruAllocatorConfig cfg = createTestCacheConfig(
-          paths[nTiers], sizePairs[nTiers], true, totalCacheSize);
+      LruAllocatorConfig cfg =
+          createTestCacheConfig(paths[nTiers], sizePairs[nTiers],
+                                /* usePoisx */ true, totalCacheSize);
       basicCheck(cfg, paths[nTiers], totalCacheSize);
-      testAddPool(cfg, 0);
+      testAddPool(cfg, 0, /* isSizeValid */ true, /* isTestMaxSize */ true);
       testAddPool(cfg, 1);
-      testAddPool(cfg, totalCacheSize, false);
+      testAddPool(cfg, totalCacheSize, /* isSizeValid */ false);
       testAddPool(cfg, totalCacheSize / nTiers);
     }
   }
