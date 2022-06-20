@@ -27,7 +27,6 @@ using LruAllocatorConfig = CacheAllocatorConfig<LruAllocator>;
 using LruMemoryTierConfigs = LruAllocatorConfig::MemoryTierConfigs;
 using Strings = std::vector<std::string>;
 
-const size_t metaDataSize = 4194304;
 constexpr size_t MB = 1024ULL * 1024ULL;
 constexpr size_t GB = MB * 1024ULL;
 
