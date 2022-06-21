@@ -72,6 +72,11 @@ Cache<Allocator>::Cache(const CacheConfig& config,
       std::chrono::milliseconds(config_.backgroundEvictorIntervalMilSec),
       config_.evictorThreads);
 
+  allocatorConfig_.enableBackgroundPromoter(
+      config_.getBackgroundPromoterStrategy(),
+      std::chrono::milliseconds(config_.backgroundPromoterIntervalMilSec),
+      config_.promoterThreads);
+
   if (config_.moveOnSlabRelease && movingSync != nullptr) {
     allocatorConfig_.enableMovingOnSlabRelease(
         [](Item& oldItem, Item& newItem, Item* parentPtr) {
@@ -127,6 +132,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   });
 
   allocatorConfig_.evictionHotnessThreshold = config_.evictionHotnessThreshold;
+  allocatorConfig_.forceAllocationTier = config_.forceAllocationTier;
 
   if (config_.enableItemDestructorCheck) {
     auto removeCB = [&](const typename Allocator::DestructorData& data) {
@@ -283,6 +289,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   allocatorConfig_.defaultTierChancePercentage = config_.defaultTierChancePercentage;
   allocatorConfig_.numDuplicateElements = config_.numDuplicateElements;
   allocatorConfig_.syncPromotion = config_.syncPromotion;
+  allocatorConfig_.promotionAcWatermark = config_.promotionAcWatermark;
 
   if (!allocatorConfig_.cacheDir.empty()) {
     cache_ =
@@ -535,6 +542,11 @@ Stats Cache<Allocator>::getStats() const {
             cacheStats.evictionStats.totalClasses;
   ret.backgndEvicStats.evictionSize =
             cacheStats.evictionStats.evictionSize;
+  
+  ret.backgndPromoStats.nPromotedItems =
+            cacheStats.promotionStats.numPromotedItems;
+  ret.backgndPromoStats.nTraversals =
+            cacheStats.promotionStats.runCount;
 
   ret.numEvictions = aggregate.numEvictions();
   ret.numItems = aggregate.numItems();
@@ -587,6 +599,7 @@ Stats Cache<Allocator>::getStats() const {
   }
 
   ret.backgroundEvictionClasses = cache_->getBackgroundEvictorClassStats();
+  ret.backgroundPromotionClasses = cache_->getBackgroundPromoterClassStats();
 
   // nvm stats from navy
   if (!isRamOnly() && !navyStats.empty()) {

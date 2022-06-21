@@ -308,6 +308,20 @@ struct BackgroundEvictionStats {
   }
 };
 
+struct BackgroundPromotionStats {
+  // the number of items this worker evicted by looking at pools/classes stats
+  uint64_t numPromotedItems{0};
+
+  // number of times we went executed the thread //TODO: is this def correct?
+  uint64_t runCount{0};
+
+  BackgroundPromotionStats& operator+=(const BackgroundPromotionStats& rhs) {
+    numPromotedItems += rhs.numPromotedItems;
+    runCount += rhs.runCount;
+    return *this;
+  }
+};
+
 // CacheMetadata type to export
 struct CacheMetadata {
   // allocator_version
@@ -330,6 +344,8 @@ struct Stats;
 struct GlobalCacheStats {
   // background eviction stats
   BackgroundEvictionStats evictionStats;
+  
+  BackgroundPromotionStats promotionStats;
 
   // number of calls to CacheAllocator::find
   uint64_t numCacheGets{0};

@@ -21,7 +21,7 @@ namespace cachelib {
 
 
 template <typename CacheT>
-BackgroundEvictor<CacheT>::BackgroundEvictor(Cache& cache,
+BackgroundPromoter<CacheT>::BackgroundPromoter(Cache& cache,
                                std::shared_ptr<BackgroundEvictorStrategy> strategy)
     : cache_(cache),
       strategy_(strategy)
@@ -29,19 +29,19 @@ BackgroundEvictor<CacheT>::BackgroundEvictor(Cache& cache,
 }
 
 template <typename CacheT>
-BackgroundEvictor<CacheT>::~BackgroundEvictor() { stop(std::chrono::seconds(0)); }
+BackgroundPromoter<CacheT>::~BackgroundPromoter() { stop(std::chrono::seconds(0)); }
 
 template <typename CacheT>
-void BackgroundEvictor<CacheT>::work() {
+void BackgroundPromoter<CacheT>::work() {
   try {
     checkAndRun();
   } catch (const std::exception& ex) {
-    XLOGF(ERR, "BackgroundEvictor interrupted due to exception: {}", ex.what());
+    XLOGF(ERR, "BackgroundPromoter interrupted due to exception: {}", ex.what());
   }
 }
 
 template <typename CacheT>
-void BackgroundEvictor<CacheT>::setAssignedMemory(std::vector<std::tuple<TierId, PoolId, ClassId>> &&assignedMemory)
+void BackgroundPromoter<CacheT>::setAssignedMemory(std::vector<std::tuple<TierId, PoolId, ClassId>> &&assignedMemory)
 {
   XLOG(INFO, "Class assigned to background worker:");
   for (auto [tid, pid, cid] : assignedMemory) {
@@ -56,12 +56,12 @@ void BackgroundEvictor<CacheT>::setAssignedMemory(std::vector<std::tuple<TierId,
 // Look for classes that exceed the target memory capacity
 // and return those for eviction
 template <typename CacheT>
-void BackgroundEvictor<CacheT>::checkAndRun() {
+void BackgroundPromoter<CacheT>::checkAndRun() {
   auto assignedMemory = mutex.lock_combine([this]{
     return assignedMemory_;
   });
 
-  unsigned int evictions = 0;
+  unsigned int promotions = 0;
   std::set<ClassId> classes{};
 
   for (const auto [tid, pid, cid] : assignedMemory) {
@@ -72,43 +72,41 @@ void BackgroundEvictor<CacheT>::checkAndRun() {
       continue;
     }
 
-    stats.evictionSize.add(batch * mpStats.acStats.at(cid).allocSize);
+    // stats.promotionsize.add(batch * mpStats.acStats.at(cid).allocSize);
   
     //try evicting BATCH items from the class in order to reach free target
-    auto evicted =
-        BackgroundEvictorAPIWrapper<CacheT>::traverseAndEvictItems(cache_,
+    auto promoted =
+        BackgroundPromoterAPIWrapper<CacheT>::traverseAndPromoteItems(cache_,
             tid,pid,cid,batch);
-    evictions += evicted;
+    promotions += promoted;
 
     const size_t cid_id = (size_t)mpStats.acStats.at(cid).allocSize;
-    auto it = evictions_per_class_.find(cid_id);
-    if (it != evictions_per_class_.end()) {
-        it->second += evicted;
+    auto it = promotions_per_class_.find(cid_id);
+    if (it != promotions_per_class_.end()) {
+        it->second += promoted;
     } else {
-        evictions_per_class_[cid_id] = 0;
+        promotions_per_class_[cid_id] = 0;
     }
   }
 
   stats.numTraversals.inc();
-  stats.numEvictedItems.add(evictions);
-  stats.totalClasses.add(classes.size());
+  stats.numPromotedItems.add(promotions);
+  // stats.totalClasses.add(classes.size());
 }
 
 template <typename CacheT>
-BackgroundEvictionStats BackgroundEvictor<CacheT>::getStats() const noexcept {
-  BackgroundEvictionStats evicStats;
-  evicStats.numEvictedItems = stats.numEvictedItems.get();
-  evicStats.runCount = stats.numTraversals.get();
-  evicStats.evictionSize = stats.evictionSize.get();
-  evicStats.totalClasses = stats.totalClasses.get();
+ BackgroundPromotionStats BackgroundPromoter<CacheT>::getStats() const noexcept {
+   BackgroundPromotionStats promoStats;
+   promoStats.numPromotedItems = stats.numPromotedItems.get();
+   promoStats.runCount = stats.numTraversals.get();
 
-  return evicStats;
-}
+   return promoStats;
+ }
 
-template <typename CacheT>
-std::map<uint32_t,uint64_t> BackgroundEvictor<CacheT>::getClassStats() const noexcept {
-  return evictions_per_class_;
-}
+ template <typename CacheT>
+ std::map<uint32_t,uint64_t> BackgroundPromoter<CacheT>::getClassStats() const noexcept {
+   return promotions_per_class_;
+ }
 
 } // namespace cachelib
 } // namespace facebook

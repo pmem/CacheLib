@@ -6,7 +6,9 @@
     "persistedCacheDir": "/tmp/mem-tier",
     "htBucketPower": 28,
     "backgroundEvictorIntervalMilSec": 10,
+    "backgroundPromoterIntervalMilSec": 10,
     "evictorThreads": 4,
+    "promoterThreads": 4,
     "memoryTiers" : [
       {
         "ratio": 1

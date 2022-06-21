@@ -279,9 +279,10 @@ template <typename T, MM2Q::Hook<T> T::*HookPtr>
 template <typename F>
 void
 MM2Q::Container<T, HookPtr>::withPromotionIterator(F&& fun) {
-  lruMutex_->lock_combine([this, &fun]() {
-    fun(Iterator{LockHolder{}, lru_.begin()});
-  });
+  throw std::runtime_error("TODO: MM2Q iterator does not support begin()");
+  // lruMutex_->lock_combine([this, &fun]() {
+  //   fun(Iterator{LockHolder{}, lru_.begin()});
+  // });
 }
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>

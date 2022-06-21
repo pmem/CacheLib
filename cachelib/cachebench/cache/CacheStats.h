@@ -40,8 +40,18 @@ struct BackgroundEvictionStats {
   uint64_t evictionSize{0};
 };
 
+struct BackgroundPromotionStats {
+  // the number of items this worker evicted by looking at pools/classes stats
+  uint64_t nPromotedItems{0};
+
+  // number of times we went executed the thread //TODO: is this def correct?
+  uint64_t nTraversals{0};
+
+};
+
 struct Stats {
   BackgroundEvictionStats backgndEvicStats;
+  BackgroundPromotionStats backgndPromoStats;
 
   uint64_t numEvictions{0};
   uint64_t numItems{0};
@@ -118,6 +128,7 @@ struct Stats {
   std::unordered_map<std::string, double> nvmCounters;
   
   std::map<uint32_t, uint64_t> backgroundEvictionClasses;
+  std::map<uint32_t, uint64_t> backgroundPromotionClasses;
 
   // errors from the nvm engine.
   std::unordered_map<std::string, double> nvmErrors;
@@ -142,13 +153,18 @@ struct Stats {
                             backgndEvicStats.nClasses) << std::endl;
     out << folly::sformat("Tier 0 Background Evicted Size : {:,}",
                             backgndEvicStats.evictionSize) << std::endl;
+    
+    out << folly::sformat("Background Promotion items : {:,}",
+                            backgndPromoStats.nPromotedItems) << std::endl;
+    out << folly::sformat("Background Promotion Traversals : {:,}",
+                            backgndPromoStats.nTraversals) << std::endl;
 
     if (numCacheGets >= 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;
       out << folly::sformat("Hit Ratio     : {:6.2f}%", overallHitRatio)
           << std::endl;
 
-      if (FLAGS_report_api_latency || 1) {
+      if (FLAGS_report_api_latency) {
         auto printLatencies =
             [&out](folly::StringPiece cat,
                    const util::PercentileStats::Estimates& latency) {
@@ -301,12 +317,19 @@ struct Stats {
       }
     }
     
-    //if (!backgroundEvictionClasses.empty()) {
-    //  out << "== Class Background Eviction Counters Map ==" << std::endl;
-    //  for (const auto& it : backgroundEvictionClasses) {
-    //    out << it.first << "  :  " << it.second << std::endl;
-    //  }
-    //}
+    if (!backgroundEvictionClasses.empty() && backgndEvicStats.nEvictedItems > 0 ) {
+      out << "== Class Background Eviction Counters Map ==" << std::endl;
+      for (const auto& it : backgroundEvictionClasses) {
+        out << it.first << "  :  " << it.second << std::endl;
+      }
+    }
+    
+    if (!backgroundPromotionClasses.empty() && backgndPromoStats.nPromotedItems > 0) {
+      out << "== Class Background Promotion Counters Map ==" << std::endl;
+      for (const auto& it : backgroundPromotionClasses) {
+        out << it.first << "  :  " << it.second << std::endl;
+      }
+    }
 
     if (numRamDestructorCalls > 0 || numNvmDestructorCalls > 0) {
       out << folly::sformat("Destructor executed from RAM {}, from NVM {}",

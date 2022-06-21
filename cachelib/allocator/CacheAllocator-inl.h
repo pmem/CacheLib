@@ -331,6 +331,12 @@ void CacheAllocator<CacheTrait>::initWorkers() {
                                 config_.backgroundEvictorStrategy,
                                 config_.backgroundEvictorThreads);
   }
+
+  if (config_.backgroundPromoterEnabled()) {
+    startNewBackgroundPromoter(config_.backgroundPromoterInterval,
+                                config_.backgroundPromoterStrategy,
+                                config_.backgroundPromoterThreads);
+  }
 }
 
 template <typename CacheTrait>
@@ -366,12 +372,12 @@ bool CacheAllocator<CacheTrait>::shouldWakeupBgEvictor(TierId tid, PoolId pid, C
 }
 
 template <typename CacheTrait>
-size_t CacheAllocator<CacheTrait>::backgroundEvictorId(TierId tid, PoolId pid, ClassId cid)
+size_t CacheAllocator<CacheTrait>::backgroundWorkerId(TierId tid, PoolId pid, ClassId cid, size_t numWorkers)
 {
-  XDCHECK(backgroundEvictor_.size());
+  XDCHECK(numWorkers);
 
   // TODO: came up with some better sharding (use some hashing)
-  return (tid + pid + cid) % backgroundEvictor_.size();
+  return (tid + pid + cid) % numWorkers;
 }
 
 template <typename CacheTrait>
@@ -399,7 +405,7 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
   void* memory = allocator_[tid]->allocate(pid, requiredSize);
 
   if (backgroundEvictor_.size() && !fromEvictorThread && (memory == nullptr || shouldWakeupBgEvictor(tid, pid, cid))) {
-    backgroundEvictor_[backgroundEvictorId(tid, pid, cid)]->wakeUp();
+    backgroundEvictor_[backgroundWorkerId(tid, pid, cid, backgroundEvictor_.size())]->wakeUp();
   }
 
   // TODO: Today disableEviction means do not evict from memory (DRAM).
@@ -474,6 +480,10 @@ CacheAllocator<CacheTrait>::getTargetTierForItem(PoolId pid,
                                              uint32_t expiryTime) {
   if (numTiers_ == 1)
     return 0;
+
+  if (config_.forceAllocationTier != UINT64_MAX) {
+    return config_.forceAllocationTier;
+  }
 
   const TierId defaultTargetTier = 0;
 
@@ -1503,6 +1513,63 @@ bool CacheAllocator<CacheTrait>::moveRegularItem(Item& oldItem,
 }
 
 template <typename CacheTrait>
+bool CacheAllocator<CacheTrait>::moveRegularItemForPromotion(Item& oldItem,
+                                                 ItemHandle& newItemHdl) {
+  XDCHECK(config_.moveCb);
+  util::LatencyTracker tracker{stats_.moveRegularLatency_};
+
+  if (!oldItem.isAccessible() || oldItem.isExpired()) {
+    return false;
+  }
+
+  XDCHECK_EQ(newItemHdl->getSize(), oldItem.getSize());
+
+  if (config_.moveCb) {
+    // Execute the move callback. We cannot make any guarantees about the
+    // consistency of the old item beyond this point, because the callback can
+    // do more than a simple memcpy() e.g. update external references. If there
+    // are any remaining handles to the old item, it is the caller's
+    // responsibility to invalidate them. The move can only fail after this
+    // statement if the old item has been removed or replaced, in which case it
+    // should be fine for it to be left in an inconsistent state.
+    config_.moveCb(oldItem, *newItemHdl, nullptr);
+  } else {
+    std::memcpy(newItemHdl->getWritableMemory(), oldItem.getMemory(),
+                oldItem.getSize());
+  }
+
+  auto predicate = [this](const Item& item) {
+    // if inclusive cache is allowed, replace even if there are active users.
+    return config_.numDuplicateElements > 0 || item.getRefCount() == 0;
+  };
+  if (!accessContainer_->replaceIf(oldItem, *newItemHdl, predicate)) {
+    return false;
+  }
+
+  // Inside the MM container's lock, this checks if the old item exists to
+  // make sure that no other thread removed it, and only then replaces it.
+  if (!replaceInMMContainer(oldItem, *newItemHdl)) {
+    accessContainer_->remove(*newItemHdl);
+    return false;
+  }
+
+  // Replacing into the MM container was successful, but someone could have
+  // called insertOrReplace() or remove() before or after the
+  // replaceInMMContainer() operation, which would invalidate newItemHdl.
+  if (!newItemHdl->isAccessible()) {
+    removeFromMMContainer(*newItemHdl);
+    return false;
+  }
+
+  // no one can add or remove chained items at this point
+  if (oldItem.hasChainedItem()) {
+    throw std::runtime_error("Not supported");
+  }
+  newItemHdl.unmarkNascent();
+  return true;
+}
+
+template <typename CacheTrait>
 bool CacheAllocator<CacheTrait>::moveChainedItem(ChainedItem& oldItem,
                                                  ItemHandle& newItemHdl) {
   XDCHECK(config_.moveCb);
@@ -1750,11 +1817,47 @@ CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
 }
 
 template <typename CacheTrait>
+bool
+CacheAllocator<CacheTrait>::tryPromoteToNextMemoryTier(
+    TierId tid, PoolId pid, Item& item, bool fromEvictorThread) {
+  TierId nextTier = tid;
+  while (nextTier > 0) { // try to evict down to the next memory tiers
+    auto toPromoteTier = nextTier - 1;
+    --nextTier;
+
+    // allocateInternal might trigger another eviction
+    auto newItemHdl = allocateInternalTier(toPromoteTier, pid,
+                     item.getKey(),
+                     item.getSize(),
+                     item.getCreationTime(),
+                     item.getExpiryTime(),
+                     fromEvictorThread);
+
+    if (newItemHdl) {
+      XDCHECK_EQ(newItemHdl->getSize(), item.getSize());
+      if (moveRegularItemForPromotion(item, newItemHdl)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::WriteHandle
 CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(Item& item, bool fromEvictorThread) {
     auto tid = getTierId(item);
     auto pid = allocator_[tid]->getAllocInfo(item.getMemory()).poolId;
     return tryEvictToNextMemoryTier(tid, pid, item, fromEvictorThread);
+}
+
+template <typename CacheTrait>
+bool
+CacheAllocator<CacheTrait>::tryPromoteToNextMemoryTier(Item& item, bool fromBgThread) {
+    auto tid = getTierId(item);
+    auto pid = allocator_[tid]->getAllocInfo(item.getMemory()).poolId;
+    return tryPromoteToNextMemoryTier(tid, pid, item, fromBgThread);
 }
 
 template <typename CacheTrait>
@@ -2399,7 +2502,12 @@ PoolId CacheAllocator<CacheTrait>::addPool(
 
   if (backgroundEvictor_.size()) {
     for (size_t id = 0; id < backgroundEvictor_.size(); id++)
-      backgroundEvictor_[id]->setAssignedMemory(getAssignedMemoryToBgEvictor(id));
+      backgroundEvictor_[id]->setAssignedMemory(getAssignedMemoryToBgWorker(id, backgroundEvictor_.size(), 0));
+  }
+
+  if (backgroundPromoter_.size()) {
+    for (size_t id = 0; id < backgroundPromoter_.size(); id++)
+      backgroundPromoter_[id]->setAssignedMemory(getAssignedMemoryToBgWorker(id, backgroundPromoter_.size(), 1));
   }
 
   return pid;
@@ -3415,6 +3523,7 @@ bool CacheAllocator<CacheTrait>::stopWorkers(std::chrono::seconds timeout) {
   success &= stopMemMonitor(timeout);
   success &= stopReaper(timeout);
   success &= stopBackgroundEvictor(timeout);
+  success &= stopBackgroundPromoter(timeout);
   return success;
 }
 
@@ -3696,6 +3805,7 @@ GlobalCacheStats CacheAllocator<CacheTrait>::getGlobalCacheStats() const {
   ret.nvmUpTime = currTime - getNVMCacheCreationTime();
   ret.reaperStats = getReaperStats();
   ret.evictionStats = getBackgroundEvictorStats();
+  ret.promotionStats = getBackgroundPromoterStats();
   ret.numActiveHandles = getNumActiveHandles();
 
   return ret;
@@ -3833,18 +3943,16 @@ bool CacheAllocator<CacheTrait>::startNewReaper(
 }
 
 template <typename CacheTrait>
-auto CacheAllocator<CacheTrait>::getAssignedMemoryToBgEvictor(size_t evictorId)
+auto CacheAllocator<CacheTrait>::getAssignedMemoryToBgWorker(size_t evictorId, size_t numWorkers, TierId tid)
 {
   std::vector<std::tuple<TierId, PoolId, ClassId>> asssignedMemory;
   // TODO: for now, only evict from tier 0
-  for (TierId tid = 0; tid < 1; tid++) {
-    auto pools = filterCompactCachePools(allocator_[tid]->getPoolIds());
-    for (const auto pid : pools) {
-      const auto& mpStats = getPoolByTid(pid,tid).getStats();
-      for (const auto cid : mpStats.classIds) {
-        if (backgroundEvictorId(tid, pid, cid) == evictorId) {
-          asssignedMemory.emplace_back(tid, pid, cid);
-        }
+  auto pools = filterCompactCachePools(allocator_[tid]->getPoolIds());
+  for (const auto pid : pools) {
+    const auto& mpStats = getPoolByTid(pid,tid).getStats();
+    for (const auto cid : mpStats.classIds) {
+      if (backgroundWorkerId(tid, pid, cid, numWorkers) == evictorId) {
+        asssignedMemory.emplace_back(tid, pid, cid);
       }
     }
   }
@@ -3865,7 +3973,28 @@ bool CacheAllocator<CacheTrait>::startNewBackgroundEvictor(
     result = result && ret;
 
     if (result) {
-      backgroundEvictor_[i]->setAssignedMemory(getAssignedMemoryToBgEvictor(i));
+      backgroundEvictor_[i]->setAssignedMemory(getAssignedMemoryToBgWorker(i, backgroundEvictor_.size(), 0));
+    }
+  }
+  return result;
+}
+
+template <typename CacheTrait>
+bool CacheAllocator<CacheTrait>::startNewBackgroundPromoter(
+    std::chrono::milliseconds interval,
+    std::shared_ptr<BackgroundEvictorStrategy> strategy,
+    size_t threads) {
+  XDCHECK(threads > 0);
+  XDCHECK(numTiers_ > 1);
+  backgroundPromoter_.resize(threads);
+  bool result = true;
+
+  for (size_t i = 0; i < threads; i++) {
+    auto ret = startNewWorker("BackgroundPromoter" + std::to_string(i), backgroundPromoter_[i], interval, strategy);
+    result = result && ret;
+
+    if (result) {
+      backgroundPromoter_[i]->setAssignedMemory(getAssignedMemoryToBgWorker(i, backgroundPromoter_.size(), 1));
     }
   }
   return result;
@@ -3904,6 +4033,17 @@ bool CacheAllocator<CacheTrait>::stopBackgroundEvictor(
   bool result = true;
   for (size_t i = 0; i < backgroundEvictor_.size(); i++) {
     auto ret = stopWorker("BackgroundEvictor" + std::to_string(i), backgroundEvictor_[i], timeout);
+    result = result && ret;
+  }
+  return result;
+}
+
+template <typename CacheTrait>
+bool CacheAllocator<CacheTrait>::stopBackgroundPromoter(
+    std::chrono::seconds timeout) {  
+  bool result = true;
+  for (size_t i = 0; i < backgroundPromoter_.size(); i++) {
+    auto ret = stopWorker("BackgroundPromoter" + std::to_string(i), backgroundPromoter_[i], timeout);
     result = result && ret;
   }
   return result;

@@ -78,6 +78,7 @@ struct CacheConfig : public JSONConfig {
   uint64_t cacheSizeMB{0};
   uint64_t poolRebalanceIntervalSec{0};
   uint64_t backgroundEvictorIntervalMilSec{0};
+  uint64_t backgroundPromoterIntervalMilSec{0};
   std::string rebalanceStrategy;
   std::string backgroundEvictorStrategy;
   uint64_t rebalanceMinSlabs{1};
@@ -293,6 +294,7 @@ struct CacheConfig : public JSONConfig {
 
   bool disableEvictionToMemory{false};
 
+  double promotionAcWatermark{97.0};
   double evictionSlabWatermark{100.0}; // trigger slab eviction when this percentage of slabs are allocated
   double lowEvictionAcWatermark{98.0};   // trigger eviction when this percentage of allocation class is occupied
   double highEvictionAcWatermark{95.0}; // stop eviction when this percentage of allocation class is occupied
@@ -308,8 +310,11 @@ struct CacheConfig : public JSONConfig {
   double syncPromotion{0.0}; // can promotion be done synchronously in user thread
 
   uint64_t evictorThreads{1};
+  uint64_t promoterThreads{1};
 
   uint64_t evictionHotnessThreshold{200};
+
+  uint64_t forceAllocationTier{UINT64_MAX};
 
   explicit CacheConfig(const folly::dynamic& configJson);
 
@@ -317,6 +322,7 @@ struct CacheConfig : public JSONConfig {
 
   std::shared_ptr<RebalanceStrategy> getRebalanceStrategy() const;
   std::shared_ptr<BackgroundEvictorStrategy> getBackgroundEvictorStrategy() const;
+  std::shared_ptr<BackgroundEvictorStrategy> getBackgroundPromoterStrategy() const;
 };
 } // namespace cachebench
 } // namespace cachelib

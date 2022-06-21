@@ -273,6 +273,10 @@ class CacheAllocatorConfig {
       std::shared_ptr<BackgroundEvictorStrategy> backgroundEvictorStrategy,
       std::chrono::milliseconds regularInterval, size_t threads);
 
+  CacheAllocatorConfig& enableBackgroundPromoter(
+      std::shared_ptr<BackgroundEvictorStrategy> backgroundEvictorStrategy,
+      std::chrono::milliseconds regularInterval, size_t threads);
+
   // This enables an optimization for Pool rebalancing and resizing.
   // The rough idea is to ensure only the least useful items are evicted when
   // we move slab memory around. Come talk to Cache Library team if you think
@@ -348,6 +352,11 @@ class CacheAllocatorConfig {
   bool backgroundEvictorEnabled() const noexcept {
     return backgroundEvictorInterval.count() > 0 &&
            backgroundEvictorStrategy != nullptr;
+  }
+
+  bool backgroundPromoterEnabled() const noexcept {
+    return backgroundPromoterInterval.count() > 0 &&
+           backgroundPromoterStrategy != nullptr;
   }
 
   // @return whether memory monitor is enabled
@@ -442,8 +451,10 @@ class CacheAllocatorConfig {
   
   // time interval to sleep between runs of the background evictor
   std::chrono::milliseconds backgroundEvictorInterval{std::chrono::milliseconds{1000}};
+  std::chrono::milliseconds backgroundPromoterInterval{std::chrono::milliseconds{1000}};
 
   size_t backgroundEvictorThreads{1};
+  size_t backgroundPromoterThreads{1};
 
   // Free slabs pro-actively if the ratio of number of freeallocs to
   // the number of allocs per slab in a slab class is above this
@@ -458,6 +469,7 @@ class CacheAllocatorConfig {
   
   // rebalance to avoid alloc fialures.
   std::shared_ptr<BackgroundEvictorStrategy> backgroundEvictorStrategy;
+  std::shared_ptr<BackgroundEvictorStrategy> backgroundPromoterStrategy;
 
   // time interval to sleep between iterations of pool size optimization,
   // for regular pools and compact caches
@@ -611,11 +623,15 @@ class CacheAllocatorConfig {
   double defaultTierChancePercentage{50.0}; // if previous policies do not aplly, select tier at random with this probability of selecting first one
   // TODO: default could be based on rati
 
-  double numDuplicateElements{0.0}; // inclusivness of the cache
+  double promotionAcWatermark{97.0}; // trigger promotion if at less than this much memory is occupied in upper tier
+
+  double numDuplicateElements{0.0}; // inclusivness of the cache (for now, only 0 or 100)
   double syncPromotion{0.0}; // can promotion be done synchronously in user thread
 
-  // can look at most at this many elements for eviction in BG (0 == no limit)
+  // can look at most at this many elements for eviction/promotion in BG (0 == no limit)
   uint64_t evictionHotnessThreshold{200};
+
+  uint64_t forceAllocationTier{UINT64_MAX};
 
   friend CacheT;
 
@@ -1009,6 +1025,16 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enableBackgroundEvictor(
   backgroundEvictorStrategy = strategy;
   backgroundEvictorInterval = interval;
   backgroundEvictorThreads = evictorThreads;
+  return *this;
+}
+
+template <typename T>
+CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enableBackgroundPromoter(
+    std::shared_ptr<BackgroundEvictorStrategy> strategy,
+    std::chrono::milliseconds interval, size_t promoterThreads) {
+  backgroundPromoterStrategy = strategy;
+  backgroundPromoterInterval = interval;
+  backgroundPromoterThreads = promoterThreads;
   return *this;
 }
 

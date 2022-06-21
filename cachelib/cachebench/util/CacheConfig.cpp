@@ -21,6 +21,7 @@
 #include "cachelib/allocator/RandomStrategy.h"
 
 #include "cachelib/allocator/FreeThresholdStrategy.h"
+#include "cachelib/allocator/PromotionStrategy.h"
 
 namespace facebook {
 namespace cachelib {
@@ -30,6 +31,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, cacheSizeMB);
   JSONSetVal(configJson, poolRebalanceIntervalSec);
   JSONSetVal(configJson, backgroundEvictorIntervalMilSec);
+  JSONSetVal(configJson, backgroundPromoterIntervalMilSec);
   JSONSetVal(configJson, moveOnSlabRelease);
   JSONSetVal(configJson, rebalanceStrategy);
   JSONSetVal(configJson, rebalanceMinSlabs);
@@ -110,10 +112,13 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, numDuplicateElements);
   JSONSetVal(configJson, syncPromotion);
   JSONSetVal(configJson, evictorThreads);
+  JSONSetVal(configJson, promoterThreads);
 
+  JSONSetVal(configJson, promotionAcWatermark);
   JSONSetVal(configJson, persistedCacheDir);
   JSONSetVal(configJson, usePosixShm);
   JSONSetVal(configJson, evictionHotnessThreshold);
+  JSONSetVal(configJson, forceAllocationTier);
 
   if (configJson.count("memoryTiers")) {
     for (auto& it : configJson["memoryTiers"]) {
@@ -124,7 +129,7 @@ CacheConfig::CacheConfig(const folly::dynamic& configJson) {
   // if you added new fields to the configuration, update the JSONSetVal
   // to make them available for the json configs and increment the size
   // below
-  checkCorrectSize<CacheConfig, 888>();
+  checkCorrectSize<CacheConfig, 920>();
 
   if (numPools != poolSizes.size()) {
     throw std::invalid_argument(folly::sformat(
@@ -160,6 +165,14 @@ std::shared_ptr<BackgroundEvictorStrategy> CacheConfig::getBackgroundEvictorStra
   }
 
   return std::make_shared<FreeThresholdStrategy>(evictionSlabWatermark, lowEvictionAcWatermark, highEvictionAcWatermark, evictionHotnessThreshold);
+}
+
+std::shared_ptr<BackgroundEvictorStrategy> CacheConfig::getBackgroundPromoterStrategy() const {
+  if (backgroundPromoterIntervalMilSec == 0) {
+    return nullptr;
+  }
+
+  return std::make_shared<PromotionStrategy>(promotionAcWatermark, evictionHotnessThreshold);
 }
 
 
