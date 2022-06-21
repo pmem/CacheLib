@@ -90,7 +90,8 @@ size_t MemoryPoolManager::getRemainingSizeLocked() const noexcept {
 
 PoolId MemoryPoolManager::createNewPool(folly::StringPiece name,
                                         size_t poolSize,
-                                        const std::set<uint32_t>& allocSizes) {
+                                        const std::set<uint32_t>& allocSizes,
+                                        size_t* extraBytes) {
   folly::SharedMutex::WriteHolder l(lock_);
   if (poolsByName_.find(name) != poolsByName_.end()) {
     throw std::invalid_argument("Duplicate pool");
@@ -107,6 +108,16 @@ PoolId MemoryPoolManager::createNewPool(folly::StringPiece name,
         "Not enough memory ({} bytes) to create a new pool of size {} bytes",
         remaining,
         poolSize));
+  }
+
+  if (extraBytes && (*extraBytes)) {
+    if (remaining >= poolSize + *extraBytes) {
+      poolSize += *extraBytes;
+      *extraBytes = 0;
+    } else {
+      poolSize += (remaining - poolSize);
+      *extraBytes -= (remaining - poolSize);
+    }
   }
 
   const PoolId id = nextPoolId_;

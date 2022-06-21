@@ -205,7 +205,8 @@ class MemoryAllocator {
   PoolId addPool(folly::StringPiece name,
                  size_t size,
                  const std::set<uint32_t>& allocSizes = {},
-                 bool ensureProvisionable = false);
+                 bool ensureProvisionable = false,
+                 size_t* extraBytes = nullptr);
 
   // shrink the existing pool by _bytes_ .
   // @param id     the id for the pool
@@ -515,14 +516,12 @@ class MemoryAllocator {
 
   using CompressedPtr = facebook::cachelib::CompressedPtr;
   template <typename PtrType>
-  using PtrCompressor =
-      facebook::cachelib::PtrCompressor<PtrType,
-      std::vector<std::unique_ptr<MemoryAllocator>>>;
+  using PtrCompressor = facebook::cachelib::
+      PtrCompressor<PtrType, std::vector<std::unique_ptr<MemoryAllocator>>>;
 
   template <typename PtrType>
   using SingleTierPtrCompressor =
-      facebook::cachelib::PtrCompressor<PtrType,
-      SlabAllocator>;
+      facebook::cachelib::PtrCompressor<PtrType, SlabAllocator>;
 
   // compress a given pointer to a valid allocation made out of this allocator
   // through an allocate() or nullptr. Calling this otherwise with invalid
@@ -636,9 +635,9 @@ class MemoryAllocator {
 
   // returns ture if ptr points to memory which is managed by this
   // allocator
-  bool isMemoryInAllocator(const void *ptr) {
-    return ptr && ptr >= slabAllocator_.getSlabMemoryBegin()
-      && ptr < slabAllocator_.getSlabMemoryEnd();
+  bool isMemoryInAllocator(const void* ptr) {
+    return ptr && ptr >= slabAllocator_.getSlabMemoryBegin() &&
+           ptr < slabAllocator_.getSlabMemoryEnd();
   }
 
  private:

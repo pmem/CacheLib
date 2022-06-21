@@ -75,7 +75,8 @@ class MemoryPoolManager {
   //         std::logic_error if we have run out the allowed number of pools.
   PoolId createNewPool(folly::StringPiece name,
                        size_t size,
-                       const std::set<uint32_t>& allocSizes);
+                       const std::set<uint32_t>& allocSizes,
+                       size_t* extraBytes = nullptr);
 
   // shrink the existing pool by _bytes_ .
   // @param bytes  the number of bytes to be taken away from the pool

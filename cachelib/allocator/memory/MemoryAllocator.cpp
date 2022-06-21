@@ -82,7 +82,8 @@ void* MemoryAllocator::allocateZeroedSlab(PoolId id) {
 PoolId MemoryAllocator::addPool(folly::StringPiece name,
                                 size_t size,
                                 const std::set<uint32_t>& allocSizes,
-                                bool ensureProvisionable) {
+                                bool ensureProvisionable,
+                                size_t* extraBytes) {
   const std::set<uint32_t>& poolAllocSizes =
       allocSizes.empty() ? config_.allocSizes : allocSizes;
 
@@ -100,7 +101,8 @@ PoolId MemoryAllocator::addPool(folly::StringPiece name,
         size));
   }
 
-  return memoryPoolManager_.createNewPool(name, size, poolAllocSizes);
+  return memoryPoolManager_.createNewPool(name, size, poolAllocSizes,
+                                          extraBytes);
 }
 
 PoolId MemoryAllocator::getPoolId(const std::string& name) const noexcept {
