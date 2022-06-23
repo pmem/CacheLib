@@ -308,8 +308,8 @@ class SlabAllocator {
   }
 
   template <typename PtrType>
-  SingleTierPtrCompressor<PtrType, SlabAllocator> createSingleTierPtrCompressor() const {
-    return SingleTierPtrCompressor<PtrType, SlabAllocator>(*this);
+  PtrCompressor<PtrType, SlabAllocator> createPtrCompressor() const {
+    return PtrCompressor<PtrType, SlabAllocator>(*this);
   }
 
   // returns starting address of memory we own.

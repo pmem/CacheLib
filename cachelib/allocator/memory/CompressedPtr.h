@@ -18,9 +18,69 @@
 
 #include <folly/logging/xlog.h>
 
+#include <deque>
+#include <forward_list>
+#include <list>
+#include <map>
 #include <memory>
+#include <queue>
+#include <set>
+#include <stack>
+#include <string>
+#include <tuple>
+#include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "cachelib/allocator/memory/Slab.h"
+
+// specialize a type for all of the STL containers.
+namespace IsContainerImpl {
+template <typename T>
+struct IsContainer : std::false_type {};
+template <typename T, std::size_t N>
+struct IsContainer<std::array<T, N>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::vector<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::deque<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::list<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::forward_list<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::set<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::multiset<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::map<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::multimap<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::unordered_set<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::unordered_multiset<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::unordered_map<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::unordered_multimap<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::stack<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::queue<Args...>> : std::true_type {};
+template <typename... Args>
+struct IsContainer<std::priority_queue<Args...>> : std::true_type {};
+} // namespace IsContainerImpl
+
+// type trait to utilize the implementation type traits as well as decay the
+// type
+template <typename T>
+struct IsContainer {
+  static constexpr bool const value =
+      IsContainerImpl::IsContainer<std::decay_t<T>>::value;
+};
 
 namespace facebook {
 namespace cachelib {
@@ -31,20 +91,22 @@ template <typename PtrType, typename AllocatorContainer>
 class PtrCompressor;
 
 // the following are for pointer compression for the memory allocator.  We
-// compress pointers by storing the slab index and the alloc index of the
-// allocation inside the slab. With slab worth kNumSlabBits of data, if we
-// have the min allocation size as 64 bytes, that requires kNumSlabBits - 6
-// bits for storing the alloc index. This leaves the remaining (32 -
-// (kNumSlabBits - 6)) bits for the slab index.  Hence we can index 256 GiB
-// of memory in slabs and index anything more than 64 byte allocations inside
-// the slab using a 32 bit representation.
+// compress pointers by storing the tier index, slab index and alloc index
+// of the allocation inside the slab. With slab worth kNumSlabBits (22 bits)
+// of data, if we have the min allocation size as 64 bytes, that requires
+// kNumSlabBits - 6 = 16 bits for storing the alloc index. The tier id
+// occupies the 32nd bit only since its value cannot exceed kMaxTiers (2).
+// This leaves the remaining (32 -(kNumSlabBits - 6) - 1 bit for tier id) =
+// 15 bits for the slab index. Hence we can index 128 GiB of memory in slabs
+// per tier and index anything more than 64 byte allocations inside the slab
+// using a 32 bit representation.
 //
 // This CompressedPtr makes decompression fast by staying away from division and
 // modulo arithmetic and doing those during the compression time. We most often
 // decompress a CompressedPtr than compress a pointer while creating one.
 class CACHELIB_PACKED_ATTR CompressedPtr {
  public:
-  using PtrType = uint64_t;
+  using PtrType = uint32_t;
   // Thrift doesn't support unsigned type
   using SerializedPtrType = int64_t;
 
@@ -103,26 +165,28 @@ class CACHELIB_PACKED_ATTR CompressedPtr {
   static constexpr unsigned int kNumAllocIdxBits =
       Slab::kNumSlabBits - Slab::kMinAllocPower;
 
-  // Use topmost 32 bits for TierId
-  // XXX: optimize
-  static constexpr unsigned int kNumTierIdxOffset = 32;
+  // Use the top bit for tier id
+  static constexpr unsigned int kNumTierIdxOffset = 31;
 
   static constexpr PtrType kAllocIdxMask = ((PtrType)1 << kNumAllocIdxBits) - 1;
 
   // kNumTierIdxBits most significant bits
-  static constexpr PtrType kTierIdxMask = (((PtrType)1 << kNumTierIdxOffset) - 1) << (NumBits<PtrType>::value - kNumTierIdxOffset);
+  static constexpr PtrType kTierIdxMask = (PtrType)1 << kNumTierIdxOffset;
 
-  // Number of bits for the slab index. This will be the top 16 bits of the
+  // Number of bits for the slab index. This will be the 16th - 31st bits of the
   // compressed ptr.
   static constexpr unsigned int kNumSlabIdxBits =
-      NumBits<PtrType>::value - kNumTierIdxOffset - kNumAllocIdxBits; 
+      kNumTierIdxOffset - kNumAllocIdxBits;
 
   // Compress the given slabIdx and allocIdx into a 64-bit compressed
   // pointer.
-  static PtrType compress(uint32_t slabIdx, uint32_t allocIdx, TierId tid) noexcept {
+  static PtrType compress(uint32_t slabIdx,
+                          uint32_t allocIdx,
+                          TierId tid) noexcept {
     XDCHECK_LE(allocIdx, kAllocIdxMask);
     XDCHECK_LT(slabIdx, (1u << kNumSlabIdxBits) - 1);
-    return (static_cast<uint64_t>(tid) << kNumTierIdxOffset) + (slabIdx << kNumAllocIdxBits) + allocIdx;
+    return (static_cast<uint64_t>(tid) << kNumTierIdxOffset) +
+           (slabIdx << kNumAllocIdxBits) + allocIdx;
   }
 
   // Get the slab index of the compressed ptr
@@ -153,62 +217,44 @@ class CACHELIB_PACKED_ATTR CompressedPtr {
   friend class PtrCompressor;
 };
 
-template <typename PtrType, typename AllocatorT>
-class SingleTierPtrCompressor {
- public:
-  explicit SingleTierPtrCompressor(const AllocatorT& allocator) noexcept
-      : allocator_(allocator) {}
-
-  const CompressedPtr compress(const PtrType* uncompressed) const {
-    return allocator_.compress(uncompressed);
-  }
-
-  PtrType* unCompress(const CompressedPtr compressed) const {
-    return static_cast<PtrType*>(allocator_.unCompress(compressed));
-  }
-
-  bool operator==(const SingleTierPtrCompressor& rhs) const noexcept {
-    return &allocator_ == &rhs.allocator_;
-  }
-
-  bool operator!=(const SingleTierPtrCompressor& rhs) const noexcept {
-    return !(*this == rhs);
-  }
-
- private:
-  // memory allocator that does the pointer compression.
-  const AllocatorT& allocator_;
-};
-
 template <typename PtrType, typename AllocatorContainer>
 class PtrCompressor {
  public:
   explicit PtrCompressor(const AllocatorContainer& allocators) noexcept
-      : allocators_(allocators) {}
+      : allocators_(allocators),
+        isContainer_(IsContainer<decltype(allocators)>::value) {}
 
   const CompressedPtr compress(const PtrType* uncompressed) const {
-    if (uncompressed == nullptr)
+    if (uncompressed == nullptr) {
       return CompressedPtr{};
-
-    TierId tid;
-    for (tid = 0; tid < allocators_.size(); tid++) {
-      if (allocators_[tid]->isMemoryInAllocator(static_cast<const void*>(uncompressed)))
-        break;
     }
+    if (isContainer_) {
+      TierId tid;
+      for (tid = 0; tid < allocators_.size(); tid++) {
+        if (allocators_[tid]->isMemoryInAllocator(
+                static_cast<const void*>(uncompressed)))
+          break;
+      }
+      auto cptr = allocators_[tid]->compress(uncompressed);
+      cptr.setTierId(tid);
+      return cptr;
 
-    auto cptr = allocators_[tid]->compress(uncompressed);
-    cptr.setTierId(tid);
-
-    return cptr;
+    } else {
+      return allocators_.compress(uncompressed);
+    }
   }
 
   PtrType* unCompress(const CompressedPtr compressed) const {
     if (compressed.isNull()) {
       return nullptr;
     }
+    if (isContainer_) {
+      auto& allocator = *allocators_[compressed.getTierId()];
+      return static_cast<PtrType*>(allocator.unCompress(compressed));
 
-    auto &allocator = *allocators_[compressed.getTierId()];
-    return static_cast<PtrType*>(allocator.unCompress(compressed));
+    } else {
+      return static_cast<PtrType*>(allocators_.unCompress(compressed));
+    }
   }
 
   bool operator==(const PtrCompressor& rhs) const noexcept {
@@ -222,6 +268,8 @@ class PtrCompressor {
  private:
   // memory allocator that does the pointer compression.
   const AllocatorContainer& allocators_;
+
+  bool isContainer_{false};
 };
 } // namespace cachelib
 } // namespace facebook
