@@ -83,8 +83,9 @@ class CacheBase {
   CacheBase(CacheBase&&) = default;
   CacheBase& operator=(CacheBase&&) = default;
 
-  // TODO: come up with some reasonable number
-  static constexpr unsigned kMaxTiers = 8;
+  // Setting max tier count to 2
+  // This is needed to keep CompressedPtr at 32 bits
+  static constexpr unsigned kMaxTiers = 2;
 
   // Get a string referring to the cache name for this cache
   virtual const std::string getCacheName() const = 0;
