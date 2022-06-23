@@ -76,7 +76,7 @@ struct MMLruObject {
   6: required i64 insertionPoint,
   7: required i64 tailSize,
   8: required DListObject lru,
-  9: required i64 compressedInsertionPoint,
+  9: required i32 compressedInsertionPoint,
 }
 
 struct MMLruCollection {

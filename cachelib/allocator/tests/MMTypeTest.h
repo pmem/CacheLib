@@ -104,11 +104,11 @@ class MMTypeTest : public testing::Test {
       // default construct to nullptr.
       CompressedPtr() = default;
 
-      explicit CompressedPtr(int64_t ptr) : ptr_(ptr) {}
+      explicit CompressedPtr(int32_t ptr) : ptr_(ptr) {}
 
-      int64_t saveState() const noexcept { return ptr_; }
+      int32_t saveState() const noexcept { return ptr_; }
 
-      int64_t ptr_{};
+      int32_t ptr_{};
     };
 
     struct PtrCompressor {
