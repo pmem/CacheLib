@@ -1581,6 +1581,8 @@ class CacheAllocator : public CacheBase {
   //         handle to the item. On failure an empty handle. 
   WriteHandle tryEvictToNextMemoryTier(Item& item);
 
+  size_t memoryTierSize(TierId tid) const;
+
   // Deserializer CacheAllocatorMetadata and verify the version
   //
   // @param  deserializer   Deserializer object

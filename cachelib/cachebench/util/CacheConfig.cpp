@@ -138,9 +138,8 @@ std::shared_ptr<RebalanceStrategy> CacheConfig::getRebalanceStrategy() const {
 MemoryTierConfig::MemoryTierConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, file);
   JSONSetVal(configJson, ratio);
-  JSONSetVal(configJson, size);
 
-  checkCorrectSize<MemoryTierConfig, 48>();
+  checkCorrectSize<MemoryTierConfig, 40>();
 }
 
 } // namespace cachebench

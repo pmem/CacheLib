@@ -202,8 +202,22 @@ ShmSegmentOpts CacheAllocator<CacheTrait>::createShmCacheOpts(TierId tid) {
   ShmSegmentOpts opts;
   opts.alignment = sizeof(Slab);
   opts.typeOpts = memoryTierConfigs[tid].getShmTypeOpts();
+  if (auto *v = std::get_if<PosixSysVSegmentOpts>(&opts.typeOpts)) {
+    v->usePosix = config_.usePosixShm;
+  }
 
   return opts;
+}
+
+template <typename CacheTrait>
+size_t CacheAllocator<CacheTrait>::memoryTierSize(TierId tid) const
+{
+  auto partitions = std::accumulate(memoryTierConfigs.begin(), memoryTierConfigs.end(), 0UL,
+  [](const size_t i, const MemoryTierCacheConfig& config){
+    return i + config.getRatio();
+  });
+
+  return memoryTierConfigs[tid].calculateTierSize(config_.getCacheSize(), partitions);
 }
 
 template <typename CacheTrait>
@@ -216,7 +230,8 @@ CacheAllocator<CacheTrait>::createNewMemoryAllocator(TierId tid) {
                       config_.getCacheSize(), config_.slabMemoryBaseAddr,
                       createShmCacheOpts(tid))
           .addr,
-      memoryTierConfigs[tid].getSize());
+          memoryTierSize(tid)
+      );
 }
 
 template <typename CacheTrait>
@@ -227,7 +242,7 @@ CacheAllocator<CacheTrait>::restoreMemoryAllocator(TierId tid) {
       shmManager_
           ->attachShm(detail::kShmCacheName + std::to_string(tid),
             config_.slabMemoryBaseAddr, createShmCacheOpts(tid)).addr,
-      memoryTierConfigs[tid].getSize(),
+      memoryTierSize(tid),
       config_.disableFullCoredump);
 }
 
@@ -2250,38 +2265,25 @@ PoolId CacheAllocator<CacheTrait>::addPool(
   folly::SharedMutex::WriteHolder w(poolsResizeAndRebalanceLock_);
 
   PoolId pid = 0;
-  size_t remainingPoolSize = size;
   std::vector<size_t> tierPoolSizes;
-  auto tierConfigs = config_.getMemoryTierConfigs();
+  const auto &tierConfigs = config_.getMemoryTierConfigs();
   size_t totalCacheSize = 0;
 
   for (TierId tid = 0; tid < numTiers_; tid++) {
     totalCacheSize += allocator_[tid]->getMemorySize();
   }
 
-  size_t remainingCacheSize = totalCacheSize;
   for (TierId tid = 0; tid < numTiers_; tid++) {
     auto tierSizeRatio =
         static_cast<double>(allocator_[tid]->getMemorySize()) / totalCacheSize;
     size_t tierPoolSize = static_cast<size_t>(tierSizeRatio * size);
-    tierPoolSizes.push_back(tierPoolSize);
-    remainingPoolSize -= tierPoolSizes.back();
-    remainingCacheSize -= tierPoolSizes.back();
-  }
 
-  if (remainingPoolSize) {
-    if (remainingPoolSize < remainingCacheSize) {
-      for (TierId tid = 0; (tid < numTiers_) && remainingPoolSize;
-           tid++, remainingPoolSize--) {
-        tierPoolSizes[tid]++;
-      }
-    } else {
-      throw std::invalid_argument(folly::sformat(
-          "Not enough memory to allocate pool of size {}", size));
-    }
+    tierPoolSizes.push_back(tierPoolSize);
   }
 
   for (TierId tid = 0; tid < numTiers_; tid++) {
+    // TODO: what if we manage to add pool only in one tier?
+    // we should probably remove that on failure
     auto res = allocator_[tid]->addPool(
         name, tierPoolSizes[tid], allocSizes, ensureProvisionable);
     XDCHECK(tid == 0 || res == pid);

@@ -47,13 +47,12 @@ struct MemoryTierConfig : public JSONConfig {
   explicit MemoryTierConfig(const folly::dynamic& configJson);
   MemoryTierCacheConfig getMemoryTierCacheConfig() {
     MemoryTierCacheConfig config = memoryTierCacheConfigFromSource();
-    config.setSize(size).setRatio(ratio);
+    config.setRatio(ratio);
     return config;
   }
 
   std::string file{""};
   size_t ratio{0};
-  size_t size{0};
 
 private:
   MemoryTierCacheConfig memoryTierCacheConfigFromSource() {
