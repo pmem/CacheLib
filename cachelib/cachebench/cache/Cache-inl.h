@@ -601,6 +601,9 @@ Stats Cache<Allocator>::getStats() const {
   ret.backgroundEvictionClasses = cache_->getBackgroundEvictorClassStats();
   ret.backgroundPromotionClasses = cache_->getBackgroundPromoterClassStats();
 
+  ret.slabsAllocatedPercentage = cacheStats.slabsAllocatedPercentage;
+  ret.acAllocatedPercentage = cacheStats.acAllocatedPercentage;
+
   // nvm stats from navy
   if (!isRamOnly() && !navyStats.empty()) {
     auto lookup = [&navyStats](const std::string& key) {

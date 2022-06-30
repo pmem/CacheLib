@@ -29,7 +29,9 @@ public:
   virtual size_t calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
-                                       ClassId cid ) = 0;
+                                       ClassId cid,
+                                       size_t allocSize,
+                                       size_t acMemorySize) = 0;
 };
 
 } // namespace cachelib

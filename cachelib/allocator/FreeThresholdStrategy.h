@@ -33,7 +33,9 @@ public:
   size_t calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
-                                       ClassId cid );
+                                       ClassId cid,
+                                       size_t allocSize,
+                                       size_t acMemorySize);
 private:
   double evictionSlabWatermark{100.0};
   double lowEvictionAcWatermark{98.0}; 

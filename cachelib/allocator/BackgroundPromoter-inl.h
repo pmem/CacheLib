@@ -67,7 +67,7 @@ void BackgroundPromoter<CacheT>::checkAndRun() {
   for (const auto [tid, pid, cid] : assignedMemory) {
     classes.insert(cid);
     const auto& mpStats = cache_.getPoolByTid(pid,tid).getStats();
-    auto batch = strategy_->calculateBatchSize(cache_,tid,pid,cid);
+    auto batch = strategy_->calculateBatchSize(cache_,tid,pid,cid, cache_.acAllocSize(tid, pid, cid), cache_.acMemorySize(tid, pid, cid));
     if (!batch) {
       continue;
     }

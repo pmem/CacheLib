@@ -29,7 +29,9 @@ FreeThresholdStrategy::FreeThresholdStrategy(double evictionSlabWatermark, doubl
 size_t FreeThresholdStrategy::calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
-                                       ClassId cid ) {
+                                       ClassId cid,
+                                       size_t numItems,
+                                       size_t acMemorySize) {
   if (cache.slabsAllocatedPercentage(tid) < evictionSlabWatermark)
     return 0;
 
@@ -37,9 +39,10 @@ size_t FreeThresholdStrategy::calculateBatchSize(const CacheBase& cache,
   if (acOccupied <= highEvictionAcWatermark)
     return 0;
 
-  // TODO: we can try to adjust it to not evict to many elements
-  // but is it worth it...?
-  return evictionHotnessThreshold;
+  auto toFreeMemPercent = acOccupied - highEvictionAcWatermark;
+  auto toFreeItems = static_cast<size_t>(toFreeMemPercent * acMemorySize / allocSize);
+
+  return toFreeItems;
 }
 
 } // namespace cachelib

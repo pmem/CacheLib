@@ -199,6 +199,9 @@ class CacheBase {
   virtual double slabsAllocatedPercentage(TierId tid) const = 0;
   virtual double acAllocatedPercentage(TierId tid, PoolId pid, ClassId cid) const = 0;
 
+  virtual size_t acAllocSize(TierId, PoolId, ClassId) const = 0;
+  virtual size_t acMemorySize(TierId, PoolId, ClassId) const = 0;
+
  protected:
   // move bytes from one pool to another. The source pool should be at least
   // _bytes_ in size.

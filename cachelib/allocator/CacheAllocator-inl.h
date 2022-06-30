@@ -3609,7 +3609,32 @@ GlobalCacheStats CacheAllocator<CacheTrait>::getGlobalCacheStats() const {
   ret.promotionStats = getBackgroundPromoterStats();
   ret.numActiveHandles = getNumActiveHandles();
 
+  for (TierId tid = 0; tid < numTiers_; tid++)
+    ret.slabsAllocatedPercentage.emplace_back(tid, slabsAllocatedPercentage(tid));
+
+  for (TierId tid = 0; tid < numTiers_; tid++) {
+    auto pools = filterCompactCachePools(allocator_[tid]->getPoolIds());
+    for (const auto pid : pools) {
+      const auto& mpStats = getPoolByTid(pid,tid).getStats();
+      for (const auto cid : mpStats.classIds) {
+          ret.acAllocatedPercentage.emplace_back(tid, pid, cid, acAllocatedPercentage(tid, pid, cid));
+      }
+    }
+  }
+
   return ret;
+}
+
+template <typename CacheTrait>
+size_t CacheAllocator<CacheTrait>::acAllocSize(TierId tid, PoolId pid, ClassId cid) const {
+  const auto &ac = allocator_[tid]->getPool(pid).getAllocationClassFor(cid);
+  return ac.getAllocSize();
+}
+
+template <typename CacheTrait>
+size_t CacheAllocator<CacheTrait>::acMemorySize(TierId tid, PoolId pid, ClassId cid) const {
+  const auto &ac = allocator_[tid]->getPool(pid).getAllocationClassFor(cid);
+  return ac.curAllocatedSlabs_.load(std::memory_order_relaxed) * Slab::kSize;
 }
 
 template <typename CacheTrait>
@@ -3629,7 +3654,12 @@ CacheMemoryStats CacheAllocator<CacheTrait>::getCacheMemoryStats() const {
   size_t compactCacheSize = std::accumulate(
       ccCachePoolIds.begin(), ccCachePoolIds.end(), 0ULL, addSize);
 
+  std::vector<size_t> tierCacheSizes;
+  for (TierId tid = 0; tid < numTiers_; tid++)
+    tierCacheSizes.push_back(allocator_[tid]->getMemorySize());
+
   return CacheMemoryStats{totalCacheSize,
+                          tierCacheSizes,
                           regularCacheSize,
                           compactCacheSize,
                           allocator_[currentTier()]->getAdvisedMemorySize(),

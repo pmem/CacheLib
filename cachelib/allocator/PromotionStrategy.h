@@ -37,7 +37,9 @@ public:
   size_t calculateBatchSize(const CacheBase& cache,
                                        unsigned int tid,
                                        PoolId pid,
-                                       ClassId cid ) {
+                                       ClassId cid,
+                                       size_t allocSize,
+                                       size_t memorySize) {
     XDCHECK(tid > 0);
     if (cache.slabsAllocatedPercentage(tid - 1) > promotionAcWatermark)
       return 0;

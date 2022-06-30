@@ -1247,6 +1247,9 @@ class CacheAllocator : public CacheBase {
   bool shouldWakeupBgEvictor(TierId tid, PoolId pid, ClassId cid);
   size_t backgroundWorkerId(TierId tid, PoolId pid, ClassId cid, size_t numWorkers);
 
+  size_t acAllocSize(TierId, PoolId, ClassId) const;
+  size_t acMemorySize(TierId, PoolId, ClassId) const;
+
 
   // this ensures that we dont introduce any more hidden fields like vtable by
   // inheriting from the Hooks and their bool interface.

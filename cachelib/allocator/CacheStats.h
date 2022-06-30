@@ -527,12 +527,17 @@ struct GlobalCacheStats {
   // not go to negative. If it's negative, it means we have
   // leaked handles (or some sort of accounting bug internally)
   int64_t numActiveHandles;
+
+  std::vector<std::tuple<TierId, double>> slabsAllocatedPercentage{};
+  std::vector<std::tuple<TierId, PoolId, ClassId, double>> acAllocatedPercentage{};
 };
 
 struct CacheMemoryStats {
   // current memory used for cache in bytes. This excludes the memory used for
   // headers. This can change as memory is advised and reclaimed.
   size_t cacheSize{0};
+
+  std::vector<size_t> tierCacheSizes;
 
   // regular pool memory size in bytes
   size_t regularCacheSize{0};

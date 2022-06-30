@@ -122,6 +122,9 @@ struct Stats {
   uint64_t invalidDestructorCount{0};
   int64_t unDestructedItemCount{0};
 
+  std::vector<std::tuple<TierId, double>> slabsAllocatedPercentage{};
+  std::vector<std::tuple<TierId, PoolId, ClassId, double>> acAllocatedPercentage{};
+
   // populate the counters related to nvm usage. Cache implementation can decide
   // what to populate since not all of those are interesting when running
   // cachebench.
@@ -329,6 +332,17 @@ struct Stats {
       for (const auto& it : backgroundPromotionClasses) {
         out << it.first << "  :  " << it.second << std::endl;
       }
+    }
+
+    // TODO: add flag for it
+    for (auto &slabs : slabsAllocatedPercentage) {
+      auto [tid, percent] = slabs;
+      out << folly::sformat("TierId {}, Slabs percentage allocated {}", tid, percent) << std::endl;
+    }
+
+    for (auto &ac : acAllocatedPercentage) {
+      auto [tid, pid, cid, percent] = ac;
+      out << folly::sformat("TierId {}, Pool {}, Class {}, percentage allocated {}", tid, pid, cid, percent) << std::endl;
     }
 
     if (numRamDestructorCalls > 0 || numNvmDestructorCalls > 0) {
