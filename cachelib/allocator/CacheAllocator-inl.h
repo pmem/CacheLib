@@ -490,9 +490,8 @@ double CacheAllocator<CacheTrait>::acFreePercentage(TierId tid, PoolId pid, Clas
 
   if (slabsFreePercentage(tid) > 0.0) {
     auto totalSlabs = allocator_[tid]->slabAllocator_.getNumUsableAndAdvisedSlabs();
-    auto freeSlabs = static_cast<double>(totalSlabs) * slabsFreePercentage(tid);
-
-    auto allocatedPercentIfAllSlabsUsed = static_cast<double>(acAllocatedSize) / (acUsableSize + freeSlabs * Slab::kSize);
+    auto freeSlabs = static_cast<size_t>(static_cast<double>(totalSlabs) * slabsFreePercentage(tid) / 100.0);
+    auto allocatedPercentIfAllSlabsUsed = 100.0 * static_cast<double>(acAllocatedSize) / (acUsableSize + freeSlabs * Slab::kSize);
     return 100.0 - allocatedPercentIfAllSlabsUsed;
   } else {
     return 100.0 - 100.0 * static_cast<double>(acAllocatedSize) / static_cast<double>(acUsableSize);
