@@ -1899,7 +1899,7 @@ class CacheAllocator : public CacheBase {
 
   size_t traverseAndPromoteItems(unsigned int tid, unsigned int pid, unsigned int cid, size_t batch) {
     auto& mmContainer = getMMContainer(tid, pid, cid);
-    size_t promotions;
+    size_t promotions = 0;
     std::vector<Item*> candidates;
     candidates.reserve(batch);
 

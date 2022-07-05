@@ -80,12 +80,12 @@ void BackgroundPromoter<CacheT>::checkAndRun() {
             tid,pid,cid,batch);
     promotions += promoted;
 
-    const size_t cid_id = (size_t)mpStats.acStats.at(cid).allocSize;
-    auto it = promotions_per_class_.find(cid_id);
+    //const size_t cid_id = (size_t)mpStats.acStats.at(cid).allocSize;
+    auto it = promotions_per_class_.find(cid);
     if (it != promotions_per_class_.end()) {
         it->second += promoted;
-    } else {
-        promotions_per_class_[cid_id] = 0;
+    } else if (promoted > 0) {
+        promotions_per_class_[cid] = promoted;
     }
   }
 
