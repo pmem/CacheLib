@@ -81,12 +81,12 @@ void BackgroundEvictor<CacheT>::checkAndRun() {
             tid,pid,cid,batch);
     evictions += evicted;
 
-    const size_t cid_id = (size_t)mpStats.acStats.at(cid).allocSize;
-    auto it = evictions_per_class_.find(cid_id);
+    //const size_t cid_id = (size_t)mpStats.acStats.at(cid).allocSize;
+    auto it = evictions_per_class_.find(cid);
     if (it != evictions_per_class_.end()) {
         it->second += evicted;
-    } else {
-        evictions_per_class_[cid_id] = 0;
+    } else if (evicted > 0) {
+        evictions_per_class_[cid] = evicted;
     }
   }
 
