@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <folly/Random.h>
+
 #include <numeric>
 
 #include "cachelib/allocator/CacheAllocator.h"
@@ -26,17 +28,16 @@ namespace tests {
 using LruAllocatorConfig = CacheAllocatorConfig<LruAllocator>;
 using LruMemoryTierConfigs = LruAllocatorConfig::MemoryTierConfigs;
 using Strings = std::vector<std::string>;
-using SizePair = std::tuple<size_t, size_t>;
-using SizePairs = std::vector<SizePair>;
 
-const size_t defaultTotalCacheSize{1 * 1024 * 1024 * 1024};
+constexpr size_t MB = 1024ULL * 1024ULL;
+constexpr size_t GB = MB * 1024ULL;
+
+using Ratios = std::vector<size_t>;
+
+const size_t defaultTotalCacheSize{1 * GB};
 const std::string defaultCacheDir{"/var/metadataDir"};
 const std::string defaultPmemPath{"/dev/shm/p1"};
 const std::string defaultDaxPath{"/dev/dax0.0"};
-
-const size_t metaDataSize = 4194304;
-constexpr size_t MB = 1024ULL * 1024ULL;
-constexpr size_t GB = MB * 1024ULL;
 
 template <typename Allocator>
 class MemoryTiersTest : public AllocatorTest<Allocator> {
@@ -50,38 +51,31 @@ class MemoryTiersTest : public AllocatorTest<Allocator> {
     EXPECT_EQ(actualConfig.getCacheDir(), expectedCacheDir);
     auto configs = actualConfig.getMemoryTierConfigs();
 
-    size_t sum_sizes = std::accumulate(
-        configs.begin(), configs.end(), 0,
-        [](const size_t i, const MemoryTierCacheConfig& config) {
-          return i + config.getSize();
-        });
     size_t sum_ratios = std::accumulate(
-        configs.begin(), configs.end(), 0,
+        configs.begin(), configs.end(), 0UL,
         [](const size_t i, const MemoryTierCacheConfig& config) {
           return i + config.getRatio();
         });
+    size_t sum_sizes = std::accumulate(
+        configs.begin(), configs.end(), 0UL,
+        [&](const size_t i, const MemoryTierCacheConfig& config) {
+          return i + config.calculateTierSize(actualConfig.getCacheSize(),
+                                              sum_ratios);
+        });
 
-    size_t partition_size = 0;
-    if (sum_ratios) {
-      partition_size = actualConfig.getCacheSize() / sum_ratios;
-      /* Sum of sizes can be lower due to rounding down to partition_size. */
-      EXPECT_GE(sum_sizes, expectedTotalCacheSize - partition_size);
-    }
+    EXPECT_GE(expectedTotalCacheSize, sum_ratios * Slab::kSize);
+    EXPECT_LE(sum_sizes, expectedTotalCacheSize);
+    EXPECT_GE(sum_sizes, expectedTotalCacheSize - configs.size() * Slab::kSize);
 
     for (auto i = 0; i < configs.size(); ++i) {
       auto& opt = std::get<FileShmSegmentOpts>(configs[i].getShmTypeOpts());
       EXPECT_EQ(opt.path, expectedPaths[i]);
-      EXPECT_GT(configs[i].getSize(), 0);
-      if (configs[i].getRatio() && (i < configs.size() - 1)) {
-        EXPECT_EQ(configs[i].getSize(), partition_size * configs[i].getRatio());
-      }
     }
   }
 
   LruAllocatorConfig createTestCacheConfig(
       const Strings& tierPaths = {defaultPmemPath},
-      const SizePairs& sizePairs = {std::make_tuple(1 /* ratio */,
-                                                    0 /* size */)},
+      const Ratios& ratios = {1},
       bool setPosixForShm = true,
       size_t cacheSize = defaultTotalCacheSize,
       const std::string& cacheDir = defaultCacheDir) {
@@ -94,9 +88,8 @@ class MemoryTiersTest : public AllocatorTest<Allocator> {
     LruMemoryTierConfigs tierConfigs;
     tierConfigs.reserve(tierPaths.size());
     for (auto i = 0; i < tierPaths.size(); ++i) {
-      tierConfigs.push_back(MemoryTierCacheConfig::fromFile(tierPaths[i])
-                                .setRatio(std::get<0>(sizePairs[i]))
-                                .setSize(std::get<1>(sizePairs[i])));
+      tierConfigs.push_back(
+          MemoryTierCacheConfig::fromFile(tierPaths[i]).setRatio(ratios[i]));
     }
     cfg.configureMemoryTiers(tierConfigs);
     return cfg;
@@ -124,6 +117,30 @@ class MemoryTiersTest : public AllocatorTest<Allocator> {
     dramConfig.setCacheSize(totalCacheSize);
     return dramConfig;
   }
+
+  void validatePoolSize(PoolId poolId,
+                        std::unique_ptr<LruAllocator>& allocator,
+                        size_t expectedSize) {
+    size_t actualSize = allocator->getPoolSize(poolId);
+    EXPECT_EQ(actualSize, expectedSize);
+  }
+
+  void testAddPool(std::unique_ptr<LruAllocator>& alloc,
+                   size_t poolSize,
+                   bool isSizeValid = true,
+                   size_t numTiers = 2) {
+    if (isSizeValid) {
+      auto pool = alloc->addPool("validPoolSize", poolSize);
+      EXPECT_LE(alloc->getPoolSize(pool), poolSize);
+      if (poolSize >= numTiers * Slab::kSize)
+        EXPECT_GE(alloc->getPoolSize(pool), poolSize - numTiers * Slab::kSize);
+    } else {
+      EXPECT_THROW(alloc->addPool("invalidPoolSize", poolSize),
+                   std::invalid_argument);
+      // TODO: test this for all tiers
+      EXPECT_EQ(alloc->getPoolIds().size(), 0);
+    }
+  }
 };
 
 using LruMemoryTiersTest = MemoryTiersTest<LruAllocator>;
@@ -138,117 +155,129 @@ TEST_F(LruMemoryTiersTest, TestValid1TierDaxRatioConfig) {
   basicCheck(cfg, {defaultDaxPath});
 }
 
-TEST_F(LruMemoryTiersTest, TestValid1TierDaxSizeConfig) {
-  LruAllocatorConfig cfg =
-      createTestCacheConfig({defaultDaxPath},
-                            {std::make_tuple(0, defaultTotalCacheSize)},
-                            /* setPosixShm */ true,
-                            /* cacheSize */ 0);
-  basicCheck(cfg, {defaultDaxPath});
-
-  // Setting size after conifguringMemoryTiers with sizes is not allowed.
-  EXPECT_THROW(cfg.setCacheSize(defaultTotalCacheSize + 1),
-               std::invalid_argument);
-}
-
 TEST_F(LruMemoryTiersTest, TestValid2TierDaxPmemConfig) {
   LruAllocatorConfig cfg =
-      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                            {std::make_tuple(1, 0), std::make_tuple(1, 0)});
+      createTestCacheConfig({defaultDaxPath, defaultPmemPath}, {1, 1});
   basicCheck(cfg, {defaultDaxPath, defaultPmemPath});
 }
 
 TEST_F(LruMemoryTiersTest, TestValid2TierDaxPmemRatioConfig) {
   LruAllocatorConfig cfg =
-      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                            {std::make_tuple(5, 0), std::make_tuple(2, 0)});
+      createTestCacheConfig({defaultDaxPath, defaultPmemPath}, {5, 2});
   basicCheck(cfg, {defaultDaxPath, defaultPmemPath});
-}
-
-TEST_F(LruMemoryTiersTest, TestValid2TierDaxPmemSizeConfig) {
-  size_t size_1 = 4321, size_2 = 1234;
-  LruAllocatorConfig cfg = createTestCacheConfig(
-      {defaultDaxPath, defaultPmemPath},
-      {std::make_tuple(0, size_1), std::make_tuple(0, size_2)}, true, 0);
-  basicCheck(cfg, {defaultDaxPath, defaultPmemPath}, size_1 + size_2);
-
-  // Setting size after conifguringMemoryTiers with sizes is not allowed.
-  EXPECT_THROW(cfg.setCacheSize(size_1 + size_2 + 1), std::invalid_argument);
 }
 
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigPosixShmNotSet) {
   LruAllocatorConfig cfg =
       createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                            {std::make_tuple(1, 0), std::make_tuple(1, 0)},
+                            {1, 1},
                             /* setPosixShm */ false);
 }
 
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigNumberOfPartitionsTooLarge) {
   EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                                     {std::make_tuple(defaultTotalCacheSize, 0),
-                                      std::make_tuple(1, 0)})
+                                     {defaultTotalCacheSize, 1})
                    .validate(),
                std::invalid_argument);
 }
 
-TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigSizesAndRatiosMixed) {
-  EXPECT_THROW(
-      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                            {std::make_tuple(1, 0), std::make_tuple(1, 1)}),
-      std::invalid_argument);
-  EXPECT_THROW(
-      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                            {std::make_tuple(1, 1), std::make_tuple(0, 1)}),
-      std::invalid_argument);
-}
-
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigSizesAndRatioNotSet) {
-  EXPECT_THROW(
-      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                            {std::make_tuple(1, 0), std::make_tuple(0, 0)}),
-      std::invalid_argument);
+  EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath}, {1, 0}),
+               std::invalid_argument);
 }
 
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigRatiosCacheSizeNotSet) {
-  EXPECT_THROW(
-      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                            {std::make_tuple(1, 0), std::make_tuple(1, 0)},
-                            /* setPosixShm */ true, /* cacheSize */ 0)
-          .validate(),
-      std::invalid_argument);
+  EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath}, {1, 1},
+                                     /* setPosixShm */ true, /* cacheSize */ 0)
+                   .validate(),
+               std::invalid_argument);
 }
 
 TEST_F(LruMemoryTiersTest, TestInvalid2TierConfigSizesNeCacheSize) {
-  EXPECT_THROW(
-      createTestCacheConfig({defaultDaxPath, defaultPmemPath},
-                            {std::make_tuple(0, 1), std::make_tuple(0, 1)}),
-      std::invalid_argument);
+  EXPECT_THROW(createTestCacheConfig({defaultDaxPath, defaultPmemPath}, {0, 0}),
+               std::invalid_argument);
 }
 
-TEST_F(LruMemoryTiersTest, TestTieredCacheSize) {
-  size_t totalSizes[] = {50 * MB, 77 * MB, 100 * MB, 101 * MB + MB / 2,
-                         1 * GB,  4 * GB,  8 * GB,   9 * GB};
-  size_t numTiers[] = {2, 3, 4};
+TEST_F(LruMemoryTiersTest, TestPoolAllocations) {
+  std::vector<size_t> totalCacheSizes = {2 * GB};
 
-  auto getCacheSize = [&](size_t cacheSize, size_t tiers) {
-    std::unique_ptr<LruAllocator> alloc;
-    if (tiers < 2) {
-      alloc = std::unique_ptr<LruAllocator>(
-          new LruAllocator(createDramCacheConfig(cacheSize)));
-    } else {
-      alloc = std::unique_ptr<LruAllocator>(
-          new LruAllocator(LruAllocator::SharedMemNew,
-                           createTieredCacheConfig(cacheSize, tiers)));
+  static const size_t numExtraSizes = 4;
+  static const size_t numExtraSlabs = 20;
+
+  for (size_t i = 0; i < numExtraSizes; i++) {
+    totalCacheSizes.push_back(totalCacheSizes.back() +
+                              (folly::Random::rand64() % numExtraSlabs) *
+                                  Slab::kSize);
+  }
+
+  const std::string path = "/tmp/tier";
+  Strings paths = {path + "0", path + "1"};
+
+  size_t min_ratio = 1;
+  size_t max_ratio = 111;
+
+  static const size_t numCombinations = 100;
+
+  for (auto totalCacheSize : totalCacheSizes) {
+    for (size_t k = 0; k < numCombinations; k++) {
+      const size_t i = folly::Random::rand32() % max_ratio + min_ratio;
+      const size_t j = folly::Random::rand32() % max_ratio + min_ratio;
+      LruAllocatorConfig cfg =
+          createTestCacheConfig(paths, {i, j},
+                                /* usePoisx */ true, totalCacheSize);
+      basicCheck(cfg, paths, totalCacheSize);
+
+      std::unique_ptr<LruAllocator> alloc = std::unique_ptr<LruAllocator>(
+          new LruAllocator(LruAllocator::SharedMemNew, cfg));
+
+      size_t size = (folly::Random::rand64() %
+                      (alloc->getCacheMemoryStats().cacheSize - Slab::kSize)) +
+                    Slab::kSize;
+      testAddPool(alloc, size, true);
     }
-    return alloc->getCacheMemoryStats().cacheSize;
-  };
+  }
+}
 
-  for (auto totalSize : totalSizes) {
-    auto dramCacheSize = getCacheSize(totalSize, 1);
-    for (auto n : numTiers) {
-      auto tieredCacheSize = getCacheSize(totalSize, n);
-      EXPECT_GT(dramCacheSize, tieredCacheSize);
-      EXPECT_GE(metaDataSize * n * 2, dramCacheSize - tieredCacheSize);
+TEST_F(LruMemoryTiersTest, TestPoolInvalidAllocations) {
+  std::vector<size_t> totalCacheSizes = {48 * MB, 51 * MB, 256 * MB,
+                                         1 * GB,  5 * GB,  8 * GB};
+  const std::string path = "/tmp/tier";
+  Strings paths = {path + "0", path + "1"};
+
+  size_t min_ratio = 1;
+  size_t max_ratio = 111;
+
+  static const size_t numCombinations = 100;
+
+  for (auto totalCacheSize : totalCacheSizes) {
+    for (size_t k = 0; k < numCombinations; k++) {
+      const size_t i = folly::Random::rand32() % max_ratio + min_ratio;
+      const size_t j = folly::Random::rand32() % max_ratio + min_ratio;
+      LruAllocatorConfig cfg =
+          createTestCacheConfig(paths, {i, j},
+                                /* usePoisx */ true, totalCacheSize);
+
+      std::unique_ptr<LruAllocator> alloc = nullptr;
+      try {
+         alloc = std::unique_ptr<LruAllocator>(
+            new LruAllocator(LruAllocator::SharedMemNew, cfg));
+      } catch(...) {
+        // expection only if cache too small
+        size_t sum_ratios = std::accumulate(
+          cfg.getMemoryTierConfigs().begin(), cfg.getMemoryTierConfigs().end(), 0UL,
+          [](const size_t i, const MemoryTierCacheConfig& config) {
+            return i + config.getRatio();
+        });
+        auto tier1slabs = cfg.getMemoryTierConfigs()[0].calculateTierSize(cfg.getCacheSize(), sum_ratios) / Slab::kSize;
+        auto tier2slabs = cfg.getMemoryTierConfigs()[1].calculateTierSize(cfg.getCacheSize(), sum_ratios) / Slab::kSize;
+        EXPECT_TRUE(tier1slabs <= 2 || tier2slabs <= 2);
+
+        continue;
+      }
+
+      size_t size = (folly::Random::rand64() % (100 * GB)) +
+                    alloc->getCacheMemoryStats().cacheSize;
+      testAddPool(alloc, size, false);
     }
   }
 }

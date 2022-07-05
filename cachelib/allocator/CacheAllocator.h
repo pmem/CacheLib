@@ -1106,8 +1106,8 @@ class CacheAllocator : public CacheBase {
   // get cache name
   const std::string getCacheName() const override final;
 
-  // whether it is object-cache
-  bool isObjectCache() const override final { return false; }
+  // combined pool size for all memory tiers
+  size_t getPoolSize(PoolId pid) const;
 
   // pool stats by pool id
   PoolStats getPoolStats(PoolId pid) const override final;
@@ -1672,6 +1672,8 @@ class CacheAllocator : public CacheBase {
   // @return valid handle to the item. This will be the last
   //         handle to the item. On failure an empty handle. 
   WriteHandle tryEvictToNextMemoryTier(Item& item);
+
+  size_t memoryTierSize(TierId tid) const;
 
   // Deserializer CacheAllocatorMetadata and verify the version
   //
