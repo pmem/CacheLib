@@ -493,9 +493,19 @@ bool Cache<Allocator>::checkGet(ValueTracker::Index opId,
 
 template <typename Allocator>
 Stats Cache<Allocator>::getStats() const {
-  PoolStats aggregate = cache_->getPoolStats(pools_[0]);
+  PoolStats aggregate = cache_->getPoolStats(0);
   for (size_t pid = 1; pid < pools_.size(); pid++) {
     aggregate += cache_->getPoolStats(static_cast<PoolId>(pid));
+  }
+
+  std::map<TierId, std::map<PoolId, std::map<ClassId, AllocationClassBaseStat>>> allocationClassStats{};
+
+  for (size_t pid = 0; pid < pools_.size(); pid++) {
+    auto cids = cache_->getPoolStats(static_cast<PoolId>(pid)).getClassIds();
+    for (TierId tid = 0; tid < cache_->getNumTiers(); tid++) {
+      for (auto cid : cids)
+        allocationClassStats[tid][pid][cid] = cache_->getAllocationClassStats(tid, pid, cid);
+    }
   }
 
   const auto cacheStats = cache_->getGlobalCacheStats();
@@ -503,6 +513,8 @@ Stats Cache<Allocator>::getStats() const {
   const auto navyStats = cache_->getNvmCacheStatsMap();
 
   Stats ret;
+  ret.slabsApproxFreePercentages = cache_->getCacheMemoryStats().slabsApproxFreePercentages;
+  ret.allocationClassStats = allocationClassStats;
   ret.numEvictions = aggregate.numEvictions();
   ret.numItems = aggregate.numItems();
   ret.allocAttempts = cacheStats.allocAttempts;
