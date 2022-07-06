@@ -21,6 +21,7 @@
 #include "cachelib/common/PercentileStats.h"
 
 DECLARE_bool(report_api_latency);
+DECLARE_bool(report_memory_usage_stats);
 
 namespace facebook {
 namespace cachelib {
@@ -95,6 +96,10 @@ struct Stats {
   uint64_t invalidDestructorCount{0};
   int64_t unDestructedItemCount{0};
 
+  std::map<TierId, std::map<PoolId, std::map<ClassId, AllocationClassBaseStat>>> allocationClassStats;
+
+  std::vector<double> slabsFreePercentages;
+
   // populate the counters related to nvm usage. Cache implementation can decide
   // what to populate since not all of those are interesting when running
   // cachebench.
@@ -114,6 +119,42 @@ struct Stats {
                           invertPctFn(allocFailures, allocAttempts))
         << std::endl;
     out << folly::sformat("RAM Evictions : {:,}", numEvictions) << std::endl;
+
+    if (FLAGS_report_memory_usage_stats) {
+      for (TierId tid = 0; tid < slabsFreePercentages.size(); tid++) {
+        out << folly::sformat("tid: {}, free slabs  : {:.2f}%", tid, slabsFreePercentages[tid]) << std::endl;
+      }
+
+      auto formatMemory = [](size_t bytes) -> std::tuple<std::string, double> {
+        constexpr double KB = 1024.0;
+        constexpr double MB = 1024.0 * 1024;
+        constexpr double GB = 1024.0 * 1024 * 1024;
+
+        if (bytes >= GB) {
+          return {"GB", static_cast<double>(bytes) / GB};
+        } else if (bytes >= MB) {
+          return {"MB", static_cast<double>(bytes) / MB};
+        } else if (bytes >= KB) {
+          return {"KB", static_cast<double>(bytes) / KB};
+        } else {
+          return {"B", bytes};
+        }
+      };
+
+      for (auto &tidStats : allocationClassStats) {
+        for (auto &pidStat : tidStats.second) {
+          for (auto &cidStat : pidStat.second) {
+            auto &stats = cidStat.second;
+
+            auto [allocSizeSuffix, allocSize] = formatMemory(stats.allocSize);
+            auto [memorySizeSuffix, memorySize] = formatMemory(stats.memorySize);
+
+            out << folly::sformat("tid : {:2}, pid : {:2}, cid : {:4}, alloc size : {:8.2f}{}, memory size : {:8.2f}{}, free : {:4.2f}%",
+              tidStats.first, pidStat.first, cidStat.first, allocSize, allocSizeSuffix, memorySize, memorySizeSuffix, stats.freePercent) << std::endl;
+          }
+        }
+      }
+    }
 
     if (numCacheGets > 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;

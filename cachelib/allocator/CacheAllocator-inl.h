@@ -2507,6 +2507,36 @@ PoolStats CacheAllocator<CacheTrait>::getPoolStats(PoolId poolId) const {
 }
 
 template <typename CacheTrait>
+double CacheAllocator<CacheTrait>::slabsFreePercentage(TierId tid) const
+{
+  return allocator_[tid]->approxFreeSlabsPercentage();
+}
+
+template <typename CacheTrait>
+AllocationClassBaseStat CacheAllocator<CacheTrait>::getAllocationClassStats(
+  TierId tid, PoolId pid, ClassId cid) const {
+  const auto &ac = allocator_[tid]->getPool(pid).getAllocationClass(cid);
+
+  AllocationClassBaseStat stats{};
+  stats.allocSize = ac.getAllocSize();
+  stats.memorySize = ac.getNumSlabs() * Slab::kSize;
+
+  if (slabsFreePercentage(tid) > 0.0) {
+    auto totalMemory = MemoryAllocator::getMemorySize(memoryTierSize(tid));
+    auto freeMemory = static_cast<size_t>(static_cast<double>(totalMemory) * slabsFreePercentage(tid) / 100.0);
+
+    auto acAllocatedMemory = (100.0 - ac.approxFreePercentage()) / 100.0 * ac.getNumSlabs() * Slab::kSize;
+    auto acMaxAvailableMemory = ac.getNumSlabs() * Slab::kSize + freeMemory;
+
+    stats.freePercent = 100.0 - 100.0 * acAllocatedMemory / acMaxAvailableMemory;
+  } else {
+    stats.freePercent = ac.approxFreePercentage();
+  }
+
+  return stats;
+}
+
+template <typename CacheTrait>
 PoolEvictionAgeStats CacheAllocator<CacheTrait>::getPoolEvictionAgeStats(
     PoolId pid, unsigned int slabProjectionLength) const {
   PoolEvictionAgeStats stats;
@@ -3613,6 +3643,10 @@ CacheMemoryStats CacheAllocator<CacheTrait>::getCacheMemoryStats() const {
   size_t compactCacheSize = std::accumulate(
       ccCachePoolIds.begin(), ccCachePoolIds.end(), 0ULL, addSize);
 
+  std::vector<double> slabsFreePercentages;
+  for (TierId tid = 0; tid < numTiers_; tid++)
+    slabsFreePercentages.push_back(slabsFreePercentage(tid));
+
   return CacheMemoryStats{totalCacheSize,
                           regularCacheSize,
                           compactCacheSize,
@@ -3621,7 +3655,8 @@ CacheMemoryStats CacheAllocator<CacheTrait>::getCacheMemoryStats() const {
                           allocator_[currentTier()]->getUnreservedMemorySize(),
                           nvmCache_ ? nvmCache_->getSize() : 0,
                           util::getMemAvailable(),
-                          util::getRSSBytes()};
+                          util::getRSSBytes(),
+                          slabsFreePercentages};
 }
 
 template <typename CacheTrait>

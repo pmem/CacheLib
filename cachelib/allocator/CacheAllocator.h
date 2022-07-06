@@ -1064,6 +1064,10 @@ class CacheAllocator : public CacheBase {
   // return cache's memory usage stats.
   CacheMemoryStats getCacheMemoryStats() const override final;
 
+  // return basic stats for Allocation Class
+  AllocationClassBaseStat getAllocationClassStats(TierId tid, PoolId pid, ClassId cid)
+      const override final;
+
   // return the nvm cache stats map
   std::unordered_map<std::string, double> getNvmCacheStatsMap()
       const override final;
@@ -1208,6 +1212,8 @@ class CacheAllocator : public CacheBase {
 #pragma GCC diagnostic pop
 
  private:
+  double slabsFreePercentage(TierId tid) const;
+
   // wrapper around Item's refcount and active handle tracking
   FOLLY_ALWAYS_INLINE void incRef(Item& it);
   FOLLY_ALWAYS_INLINE RefcountWithFlags::Value decRef(Item& it);

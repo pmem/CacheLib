@@ -33,6 +33,7 @@ class CacheBaseTest : public CacheBase, public SlabAllocatorTestBase {
   const std::string getCacheName() const override { return cacheName; }
   const MemoryPool& getPool(PoolId) const override { return memoryPool_; }
   PoolStats getPoolStats(PoolId) const override { return PoolStats(); }
+  AllocationClassBaseStat getAllocationClassStats(TierId tid, PoolId, ClassId) const {return AllocationClassBaseStat();};
   AllSlabReleaseEvents getAllSlabReleaseEvents(PoolId) const override {
     return AllSlabReleaseEvents{};
   }
