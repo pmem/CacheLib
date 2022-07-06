@@ -107,8 +107,8 @@ class AllocatorMemoryTiersTest : public AllocatorTest<AllocatorT> {
       auto pool = alloc.addPool("default", alloc.getCacheMemoryStats().cacheSize);
       auto handle = alloc.allocate(pool, "key", std::string("value").size());
       ASSERT(handle != nullptr);
-      ASSERT_NE(alloc.getCacheMemoryStats().slabsFreePercentages[0], 100.0);
-      ASSERT_EQ(alloc.getCacheMemoryStats().slabsFreePercentages[1], 100.0);
+      ASSERT_NE(alloc.getCacheMemoryStats().slabsApproxFreePercentages[0], 100.0);
+      ASSERT_EQ(alloc.getCacheMemoryStats().slabsApproxFreePercentages[1], 100.0);
     }
 
     config = makeDefaultConfig();
@@ -118,8 +118,8 @@ class AllocatorMemoryTiersTest : public AllocatorTest<AllocatorT> {
       auto pool = alloc.addPool("default", alloc.getCacheMemoryStats().cacheSize);
       auto handle = alloc.allocate(pool, "key", std::string("value").size());
       ASSERT(handle != nullptr);
-      ASSERT_EQ(alloc.getCacheMemoryStats().slabsFreePercentages[0], 100.0);
-      ASSERT_NE(alloc.getCacheMemoryStats().slabsFreePercentages[1], 100.0);
+      ASSERT_EQ(alloc.getCacheMemoryStats().slabsApproxFreePercentages[0], 100.0);
+      ASSERT_NE(alloc.getCacheMemoryStats().slabsApproxFreePercentages[1], 100.0);
     }
   }
 
@@ -135,8 +135,8 @@ class AllocatorMemoryTiersTest : public AllocatorTest<AllocatorT> {
       auto pool = alloc.addPool("default", alloc.getCacheMemoryStats().cacheSize);
       auto handle = alloc.allocate(pool, "key", std::string("value").size());
       ASSERT(handle != nullptr);
-      ASSERT_NE(alloc.getCacheMemoryStats().slabsFreePercentages[0], 100.0);
-      ASSERT_EQ(alloc.getCacheMemoryStats().slabsFreePercentages[1], 100.0);
+      ASSERT_NE(alloc.getCacheMemoryStats().slabsApproxFreePercentages[0], 100.0);
+      ASSERT_EQ(alloc.getCacheMemoryStats().slabsApproxFreePercentages[1], 100.0);
     }
 
     // always allocate in lower tier
@@ -147,8 +147,8 @@ class AllocatorMemoryTiersTest : public AllocatorTest<AllocatorT> {
       auto pool = alloc.addPool("default", alloc.getCacheMemoryStats().cacheSize);
       auto handle = alloc.allocate(pool, "key", std::string("value").size());
       ASSERT(handle != nullptr);
-      ASSERT_EQ(alloc.getCacheMemoryStats().slabsFreePercentages[0], 100.0);
-      ASSERT_NE(alloc.getCacheMemoryStats().slabsFreePercentages[1], 100.0);
+      ASSERT_EQ(alloc.getCacheMemoryStats().slabsApproxFreePercentages[0], 100.0);
+      ASSERT_NE(alloc.getCacheMemoryStats().slabsApproxFreePercentages[1], 100.0);
     }
 
     // allocate in tier based on size
@@ -162,16 +162,17 @@ class AllocatorMemoryTiersTest : public AllocatorTest<AllocatorT> {
       ASSERT(handle != nullptr);
 
       // item should be allocated in upper tier
-      ASSERT_NE(alloc.getCacheMemoryStats().slabsFreePercentages[0], 100.0);
-      ASSERT_EQ(alloc.getCacheMemoryStats().slabsFreePercentages[1], 100.0);
+      ASSERT_NE(alloc.getCacheMemoryStats().slabsApproxFreePercentages[0], 100.0);
+      ASSERT_EQ(alloc.getCacheMemoryStats().slabsApproxFreePercentages[1], 100.0);
 
       handle = alloc.allocate(pool, "key", 1001);
       ASSERT(handle != nullptr);
 
       // item should be allocated in lower tier
-      ASSERT_NE(alloc.getCacheMemoryStats().slabsFreePercentages[0], 100.0);
-      ASSERT_NE(alloc.getCacheMemoryStats().slabsFreePercentages[1], 100.0);
-      ASSERT_EQ(alloc.getCacheMemoryStats().slabsFreePercentages[0], alloc.getCacheMemoryStats().slabsFreePercentages[1]);
+      ASSERT_NE(alloc.getCacheMemoryStats().slabsApproxFreePercentages[0], 100.0);
+      ASSERT_NE(alloc.getCacheMemoryStats().slabsApproxFreePercentages[1], 100.0);
+      ASSERT_EQ(alloc.getCacheMemoryStats().slabsApproxFreePercentages[0],
+        alloc.getCacheMemoryStats().slabsApproxFreePercentages[1]);
     }
   }
 };

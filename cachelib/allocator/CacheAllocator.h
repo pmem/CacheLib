@@ -1829,7 +1829,7 @@ class CacheAllocator : public CacheBase {
 
     size_t tries = 0;
     mmContainer.withEvictionIterator([&tries, &candidates, &batch, this](auto &&itr){
-      while (candidates.size() < batch && (config_.evictionHotnessThreshold == 0 || tries < config_.evictionHotnessThreshold) && itr) {
+      while (candidates.size() < batch && (config_.maxEvictionPromotionHotness == 0 || tries < config_.maxEvictionPromotionHotness) && itr) {
         tries++;
         Item* candidate = itr.get();
         XDCHECK(candidate);
@@ -1905,7 +1905,7 @@ class CacheAllocator : public CacheBase {
     size_t tries = 0;
 
     mmContainer.withPromotionIterator([&tries, &candidates, &batch, this](auto &&itr){
-      while (candidates.size() < batch && (config_.evictionHotnessThreshold == 0 || tries < config_.evictionHotnessThreshold) && itr) {
+      while (candidates.size() < batch && (config_.maxEvictionPromotionHotness == 0 || tries < config_.maxEvictionPromotionHotness) && itr) {
         tries++;
         Item* candidate = itr.get();
         XDCHECK(candidate);

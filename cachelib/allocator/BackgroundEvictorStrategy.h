@@ -25,10 +25,8 @@ namespace cachelib {
 class BackgroundEvictorStrategy {
 
 public:
-  virtual size_t calculateBatchSize(const CacheBase& cache,
-                                       unsigned int tid,
-                                       PoolId pid,
-                                       ClassId cid) = 0;
+  virtual std::vector<size_t> calculateBatchSizes(const CacheBase& cache,
+                                       std::vector<std::tuple<TierId, PoolId, ClassId>> acVec) = 0;
 };
 
 } // namespace cachelib

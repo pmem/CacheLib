@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-
-
 namespace facebook {
 namespace cachelib {
 
@@ -64,10 +62,15 @@ void BackgroundPromoter<CacheT>::checkAndRun() {
   unsigned int promotions = 0;
   std::set<ClassId> classes{};
 
-  for (const auto [tid, pid, cid] : assignedMemory) {
+  auto batches = strategy_->calculateBatchSizes(cache_,assignedMemory);
+
+  for (size_t i = 0; i < batches.size(); i++) {
+    const auto [tid, pid, cid] = assignedMemory[i];
+    const auto batch = batches[i];
+
+
     classes.insert(cid);
     const auto& mpStats = cache_.getPoolByTid(pid,tid).getStats();
-    auto batch = strategy_->calculateBatchSize(cache_,tid,pid,cid);
     if (!batch) {
       continue;
     }

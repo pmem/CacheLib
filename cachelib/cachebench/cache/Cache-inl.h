@@ -131,9 +131,12 @@ Cache<Allocator>::Cache(const CacheConfig& config,
     }
   });
 
-  allocatorConfig_.evictionHotnessThreshold = config_.evictionHotnessThreshold;
-  allocatorConfig_.promotionHotnessThreshold = config_.promotionHotnessThreshold;
+  allocatorConfig_.maxEvictionBatch = config_.maxEvictionBatch;
+  allocatorConfig_.maxPromotionBatch = config_.maxPromotionBatch;
   allocatorConfig_.forceAllocationTier = config_.forceAllocationTier;
+  allocatorConfig_.minEvictionBatch = config_.minEvictionBatch;
+  allocatorConfig_.minPromotionBatch = config_.minPromotionBatch;
+  allocatorConfig_.maxEvictionPromotionHotness = config_.maxEvictionPromotionHotness;
 
   if (config_.enableItemDestructorCheck) {
     auto removeCB = [&](const typename Allocator::DestructorData& data) {

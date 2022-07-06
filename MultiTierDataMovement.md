@@ -34,10 +34,17 @@ an equal number of classes to scan - but as object size distribution may be uneq
 versions will attempt to balance the classes among threads. The range is 1 to number of AllocationClasses.
 The default is 1. 
 
-- `evictionHotnessThreshold`: The number of objects to remove in a given eviction call. The
+- `maxEvictionBatch`: The number of objects to remove in a given eviction call. The
 default is 40. Lower range is 10 and the upper range is 1000. Too low and we might not
 remove objects at a reasonable rate, too high and we hold the locks for copying data
 between tiers for too long.
+
+- `minEvictionBatch`: Minimum number of items to evict at any time (if there are any
+candidates)
+
+- `maxEvictionPromotionHotness`: Maximum candidates to consider for eviction. This is similar to `maxEvictionBatch`
+but it specifies how many candidates will be taken into consideration, not the actual number of items to evict.
+This option can be used to configure duration of critical section on LRU lock.
 
 
 ### FreeThresholdStrategy (default)
@@ -66,10 +73,13 @@ a set of AllocationClasses to scan and promote objects from. Currently, each thr
 an equal number of classes to scan - but as object size distribution may be unequal - future
 versions will attempt to balance the classes among threads. The range is `1` to number of AllocationClasses. The default is `1`.
 
-- `evictionHotnessThreshold`: The number of objects to remove in a given eviction call. The
-default is 50. Lower range is 10 and the upper range is 1000. Too low and we might not
+- `maxProtmotionBatch`: The number of objects to promote in a given promotion call. The
+default is 40. Lower range is 10 and the upper range is 1000. Too low and we might not
 remove objects at a reasonable rate, too high and we hold the locks for copying data
 between tiers for too long. 
+
+- `minPromotionBatch`: Minimum number of items to promote at any time (if there are any
+candidates)
 
 - `numDuplicateElements`: This allows us to promote items that have existing handles (read-only) since
 we won't need to modify the data when a user is done with the data. Therefore, for a short time
@@ -79,11 +89,11 @@ not allow this (0). Setting the value to 100 will enable duplicate elements in t
 ### Background Promotion Strategy (only one currently)
 
 - `promotionAcWatermark`: Promote items if there is at least this
-percent of free AllocationClasses. Promotion thread will attempt to move `evictionHotnessThreshold` number of objects
+percent of free AllocationClasses. Promotion thread will attempt to move `maxPromotionBatch` number of objects
 to that tier. The objects are chosen from the head of the LRU. The default is `4.0`.
 This value should correlate with `lowEvictionAcWatermark`, `highEvictionAcWatermark`, `minAcAllocationWatermark`, `maxAcAllocationWatermark`.
-- `promotionHotnessThreshold`: The number of objects to promote in batch during BG promotion. Analogous to
-`evictionHotnessThreshold`. It's value should be lower to decrease contention on hot items.
+- `maxPromotionBatch`: The number of objects to promote in batch during BG promotion. Analogous to
+`maxEvictionBatch`. It's value should be lower to decrease contention on hot items.
 
 ## Allocation policies
 

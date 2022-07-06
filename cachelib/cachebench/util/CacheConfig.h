@@ -308,8 +308,13 @@ struct CacheConfig : public JSONConfig {
   uint64_t evictorThreads{1};
   uint64_t promoterThreads{1};
 
-  uint64_t evictionHotnessThreshold{40};
-  uint64_t promotionHotnessThreshold{10};
+  uint64_t maxEvictionBatch{40};
+  uint64_t maxPromotionBatch{10};
+
+  uint64_t minEvictionBatch{5};
+  uint64_t minPromotionBatch{5};
+
+  uint64_t maxEvictionPromotionHotness{60};
 
   uint64_t forceAllocationTier{UINT64_MAX};
 
