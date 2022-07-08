@@ -17,8 +17,6 @@
 #include "cachelib/allocator/DynamicFreeThresholdStrategy.h"
 
 #include <folly/logging/xlog.h>
-#include <std::pair>
-#include <std::vector>
 
 namespace facebook {
 namespace cachelib {
@@ -34,22 +32,29 @@ size_t DynamicFreeThresholdStrategy::calculateBatchSize(const CacheBase& cache,
                                        ClassId cid,
                                        size_t allocSize,
                                        size_t acMemorySize) {
-  auto acFree = cache.acFreePercentage(tid, pid, cid);
   
+  auto acFree = cache.acFreePercentage(tid, pid, cid);
+  auto latencies = cache.getAllocationLatency();
+
+  uint64_t p99 = latencies.back(); //is p99 for now
+  if (p99 == 0) {
+      p99 = 1;
+  }
+
   if (toFreeMemPercent < acFree / 2) {
-    highEvictionAcWatermark--;
+    highEvictionAcWatermark =- 1.0;
   } else {
     if (currentBenefitMig > previousBenefitMig) {
       if (highEvictionAcWatermarkPreviousEnd > highEvictionAcWatermarkPreviousStart) {
-        highEvictionAcWatermark++; //have a dynamic/config param to increase/decrease with (maybe base it on access freq or access stat)
+        highEvictionAcWatermark += 1.0; //have a dynamic/config param to increase/decrease with (maybe base it on access freq or access stat)
       } else {
-        highEvictionAcWatermark--;
+        highEvictionAcWatermark -= 1.0;
       }
     } else {
       if (highEvictionAcWatermarkPreviousEnd < highEvictionAcWatermarkPreviousStart) {
-        highEvictionAcWatermark++;
+        highEvictionAcWatermark += 1.0;
       } else {
-        highEvictionAcWatermark--;
+        highEvictionAcWatermark -= 1.0;
       }
     }
   }

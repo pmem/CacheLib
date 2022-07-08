@@ -198,6 +198,7 @@ class CacheBase {
 
   virtual double slabsFreePercentage(TierId tid) const = 0;
   virtual double acFreePercentage(TierId tid, PoolId pid, ClassId cid) const = 0;
+  virtual std::vector<uint64_t> getAllocationLatency() const = 0;
 
   virtual size_t acAllocSize(TierId, PoolId, ClassId) const = 0;
   virtual size_t acMemorySize(TierId, PoolId, ClassId) const = 0;

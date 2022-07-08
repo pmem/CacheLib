@@ -1246,6 +1246,8 @@ class CacheAllocator : public CacheBase {
 
   double slabsFreePercentage(TierId tid) const;
   double acFreePercentage(TierId tid, PoolId pid, ClassId cid) const;
+  
+  std::vector<uint64_t> getAllocationLatency() const;
 
   bool shouldWakeupBgEvictor(TierId tid, PoolId pid, ClassId cid);
   size_t backgroundWorkerId(TierId tid, PoolId pid, ClassId cid, size_t numWorkers);
@@ -1818,6 +1820,7 @@ class CacheAllocator : public CacheBase {
     folly::annotate_ignore_thread_sanitizer_guard g(__FILE__, __LINE__);
     allocator_[currentTier()]->forEachAllocation(std::forward<Fn>(f));
   }
+
   
   // exposed for the background evictor to iterate through the memory and evict
   // in batch. This should improve insertion path for tiered memory config

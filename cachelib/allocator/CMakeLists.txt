@@ -34,6 +34,7 @@ add_library (cachelib_allocator
     CCacheAllocator.cpp
     CCacheManager.cpp
     ContainerTypes.cpp
+    DynamicFreeThresholdStrategy.cpp
     FreeMemStrategy.cpp
     FreeThresholdStrategy.cpp
     HitsPerSlabStrategy.cpp
