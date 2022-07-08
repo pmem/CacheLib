@@ -37,6 +37,10 @@ struct BackgroundEvictorAPIWrapper {
           unsigned int tid, unsigned int pid, unsigned int cid, size_t batch) {
     return cache.traverseAndEvictItems(tid,pid,cid,batch);
   }
+  
+  //static std::vector<uint64_t> getAllocationLatency(C& cache) {
+  //  return cache.getAllocationLatency();
+  //}
 };
 
 struct BackgroundEvictorStats {

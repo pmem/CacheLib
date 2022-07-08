@@ -479,6 +479,18 @@ double CacheAllocator<CacheTrait>::slabsFreePercentage(TierId tid) const
 }
 
 template <typename CacheTrait>
+std::vector<uint64_t> CacheAllocator<CacheTrait>::getAllocationLatency() const
+{
+    util::PercentileStats::Estimates es = stats().allocateLatency_.estimate();
+    std::vector<uint64_t> latencies;
+    latencies.push_back(es.avg);
+    latencies.push_back(es.p50);
+    latencies.push_back(es.p90);
+    latencies.push_back(es.p99);
+    return latencies;
+}
+
+template <typename CacheTrait>
 double CacheAllocator<CacheTrait>::acFreePercentage(TierId tid, PoolId pid, ClassId cid) const
 {
   const auto &ac = allocator_[tid]->getPool(pid).getAllocationClassFor(cid);
