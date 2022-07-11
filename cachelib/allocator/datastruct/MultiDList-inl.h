@@ -72,6 +72,20 @@ void MultiDList<T, HookPtr>::Iterator::initToValidRBeginFrom(
 }
 
 template <typename T, DListHook<T> T::*HookPtr>
+void MultiDList<T, HookPtr>::Iterator::initToValidBeginFrom(
+    size_t listIdx) noexcept {
+  // Find the first non-empty list.
+  index_ = listIdx;
+  while (index_ != std::numeric_limits<size_t>::max() &&
+         mlist_.lists_[index_]->size() == 0) {
+    --index_;
+  }
+  currIter_ = index_ == std::numeric_limits<size_t>::max()
+                  ? mlist_.lists_[0]->end()
+                  : mlist_.lists_[index_]->begin();
+}
+
+template <typename T, DListHook<T> T::*HookPtr>
 typename MultiDList<T, HookPtr>::Iterator&
 MultiDList<T, HookPtr>::Iterator::operator++() noexcept {
   goForward();
@@ -98,6 +112,15 @@ typename MultiDList<T, HookPtr>::Iterator MultiDList<T, HookPtr>::rbegin(
     throw std::invalid_argument("Invalid list index for MultiDList iterator.");
   }
   return MultiDList<T, HookPtr>::Iterator(*this, listIdx);
+}
+
+template <typename T, DListHook<T> T::*HookPtr>
+typename MultiDList<T, HookPtr>::Iterator MultiDList<T, HookPtr>::begin(
+    size_t listIdx) const {
+  if (listIdx >= lists_.size()) {
+    throw std::invalid_argument("Invalid list index for MultiDList iterator.");
+  }
+  return MultiDList<T, HookPtr>::Iterator(*this, listIdx, true);
 }
 
 template <typename T, DListHook<T> T::*HookPtr>

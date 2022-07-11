@@ -243,15 +243,16 @@ MM2Q::Container<T, HookPtr>::getEvictionIterator() const noexcept {
   return Iterator{std::move(l), lru_.rbegin()};
 }
 
+
+// returns the head of the hot queue for promotion
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
 template <typename F>
 void
-MM2Q::Container<T, HookPtr>::withEvictionIterator(F&& fun) {
+MM2Q::Container<T, HookPtr>::withPromotionIterator(F&& fun) {
   lruMutex_->lock_combine([this, &fun]() {
-    fun(Iterator{LockHolder{}, lru_.rbegin()});
+    fun(Iterator{LockHolder{}, lru_.begin(LruType::Hot)});
   });
 }
-
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
 void MM2Q::Container<T, HookPtr>::removeLocked(T& node,
