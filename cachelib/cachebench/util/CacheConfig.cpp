@@ -20,7 +20,8 @@
 #include "cachelib/allocator/LruTailAgeStrategy.h"
 #include "cachelib/allocator/RandomStrategy.h"
 
-#include "cachelib/allocator/FreeThresholdStrategy.h"
+//#include "cachelib/allocator/FreeThresholdStrategy.h"
+#include "cachelib/allocator/DynamicFreeThresholdStrategy.h"
 #include "cachelib/allocator/PromotionStrategy.h"
 
 namespace facebook {
@@ -163,7 +164,8 @@ std::shared_ptr<BackgroundEvictorStrategy> CacheConfig::getBackgroundEvictorStra
     return nullptr;
   }
 
-  return std::make_shared<FreeThresholdStrategy>(lowEvictionAcWatermark, highEvictionAcWatermark, evictionHotnessThreshold);
+  //return std::make_shared<FreeThresholdStrategy>(lowEvictionAcWatermark, highEvictionAcWatermark, evictionHotnessThreshold);
+  return std::make_shared<DynamicFreeThresholdStrategy>(lowEvictionAcWatermark, highEvictionAcWatermark, highEvictionAcWatermarkPreviousStart, highEvictionAcWatermarkPreviousEnd, evictionHotnessThreshold, previousBenefitMig, currentBenefitMig, toFreeMemPercent);
 }
 
 std::shared_ptr<BackgroundEvictorStrategy> CacheConfig::getBackgroundPromoterStrategy() const {

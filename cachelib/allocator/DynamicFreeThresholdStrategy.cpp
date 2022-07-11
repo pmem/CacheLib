@@ -34,12 +34,16 @@ size_t DynamicFreeThresholdStrategy::calculateBatchSize(const CacheBase& cache,
                                        size_t acMemorySize) {
   
   auto acFree = cache.acFreePercentage(tid, pid, cid);
+  if (acFree >= highEvictionAcWatermark)
+    return 0;
+  
   auto latencies = cache.getAllocationLatency();
 
   uint64_t p99 = latencies.back(); //is p99 for now
   if (p99 == 0) {
       p99 = 1;
   }
+  calculateBenefitMig(p99);
 
   if (toFreeMemPercent < acFree / 2) {
     highEvictionAcWatermark =- 1.0;
@@ -64,9 +68,9 @@ size_t DynamicFreeThresholdStrategy::calculateBatchSize(const CacheBase& cache,
   return toFreeItems;
 }
 
-double DynamicFreeThresholdStrategy::calculateBenefitMig() {
+void DynamicFreeThresholdStrategy::calculateBenefitMig(p99) {
     previousBenefitMig = currentBenefitMig;
-    //TODO: currentBenefitMig = ???
+    currentBenefitMig = 1 / p99;
 }
 
 } // namespace cachelib
