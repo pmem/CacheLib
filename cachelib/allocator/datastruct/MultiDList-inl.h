@@ -81,7 +81,7 @@ void MultiDList<T, HookPtr>::Iterator::initToValidBeginFrom(
     ++index_;
   }
   currIter_ = index_ == mlist_.lists_.size()
-                  ? mlist_.lists_[0]->rend()
+                  ? mlist_.lists_[0]->begin()
                   : mlist_.lists_[index_]->begin();
 }
 
