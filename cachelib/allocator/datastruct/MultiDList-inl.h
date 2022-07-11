@@ -76,12 +76,12 @@ void MultiDList<T, HookPtr>::Iterator::initToValidBeginFrom(
     size_t listIdx) noexcept {
   // Find the first non-empty list.
   index_ = listIdx;
-  while (index_ != std::numeric_limits<size_t>::max() &&
+  while (index_ != mlist_.lists_.size() &&
          mlist_.lists_[index_]->size() == 0) {
-    --index_;
+    ++index_;
   }
-  currIter_ = index_ == std::numeric_limits<size_t>::max()
-                  ? mlist_.lists_[0]->end()
+  currIter_ = index_ == mlist_.lists_.size()
+                  ? mlist_.lists_[mlist_.lists_.size()-1]->begin()
                   : mlist_.lists_[index_]->begin();
 }
 
