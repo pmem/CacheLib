@@ -131,7 +131,7 @@ class MultiDList {
       }
       // We should either point to an element or the end() iterator
       // which has an invalid index_.
-      XDCHECK(index_ == kInvalidIndex || currIter_.get() != nullptr);
+      XDCHECK(index_ == kInvalidIndex || index_ == mlist.lists_.size() || currIter_.get() != nullptr);
     }
     virtual ~Iterator() = default;
 
