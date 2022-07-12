@@ -254,11 +254,11 @@ bool MMTinyLFU::Container<T, HookPtr>::remove(T& node) noexcept {
 }
 
 template <typename T, MMTinyLFU::Hook<T> T::*HookPtr>
-void MMTinyLFU::Container<T, HookPtr>::remove(Iterator& it) noexcept {
+bool MMTinyLFU::Container<T, HookPtr>::remove(Iterator& it) noexcept {
   T& node = *it;
   XDCHECK(node.isInMMContainer());
-  ++it;
   removeLocked(node);
+  return true;
 }
 
 template <typename T, MMTinyLFU::Hook<T> T::*HookPtr>

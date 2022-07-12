@@ -275,11 +275,11 @@ bool MMLru::Container<T, HookPtr>::remove(T& node) noexcept {
 }
 
 template <typename T, MMLru::Hook<T> T::*HookPtr>
-void MMLru::Container<T, HookPtr>::remove(Iterator& it) noexcept {
+bool MMLru::Container<T, HookPtr>::remove(Iterator& it) noexcept {
   T& node = *it;
   XDCHECK(node.isInMMContainer());
-  ++it;
   removeLocked(node);
+  return true;
 }
 
 template <typename T, MMLru::Hook<T> T::*HookPtr>

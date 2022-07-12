@@ -1203,7 +1203,7 @@ bool CacheAllocator<CacheTrait>::addWaitContextForMovingItem(
 template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::ItemHandle
 CacheAllocator<CacheTrait>::moveRegularItemOnEviction(
-    Item& oldItem, ItemHandle& newItemHdl) {
+    Item& oldItem, ItemHandle& newItemHdl, bool inMMContainer) {
   XDCHECK(oldItem.isMoving());
   // TODO: should we introduce new latency tracker. E.g. evictRegularLatency_
   // ??? util::LatencyTracker tracker{stats_.evictRegularLatency_};
@@ -1283,9 +1283,16 @@ CacheAllocator<CacheTrait>::moveRegularItemOnEviction(
 
   // Inside the MM container's lock, this checks if the old item exists to
   // make sure that no other thread removed it, and only then replaces it.
-  if (!replaceInMMContainer(oldItem, *newItemHdl)) {
+  if (inMMContainer && !replaceInMMContainer(oldItem, *newItemHdl)) {
     accessContainer_->remove(*newItemHdl);
     return {};
+  } else if (!inMMContainer) {
+      //add the new itemhandle
+      auto& newContainer = getMMContainer(*newItemHdl);
+      if (!newContainer.add(*newItemHdl)) {
+        accessContainer_->remove(*newItemHdl);
+        return {};
+      }
   }
 
   // Replacing into the MM container was successful, but someone could have
@@ -1473,8 +1480,10 @@ CacheAllocator<CacheTrait>::findEviction(TierId tid, PoolId pid, ClassId cid) {
 
     Item* toRecycle = nullptr;
     Item* candidate = nullptr;
+    bool inMMContainer = true;
 
-    mmContainer.withEvictionIterator([this, &candidate, &toRecycle, &searchTries](auto &&itr){
+    mmContainer.withEvictionIterator(
+            [this, &mmContainer, &candidate, &toRecycle, &inMMContainer, &searchTries](auto &&itr){
       while ((config_.evictionSearchTries == 0 ||
           config_.evictionSearchTries > searchTries) && itr) {
         ++searchTries;
@@ -1488,7 +1497,12 @@ CacheAllocator<CacheTrait>::findEviction(TierId tid, PoolId pid, ClassId cid) {
         if (candidate_->getRefCount() == 0 && candidate_->markMoving()) {
           toRecycle = toRecycle_;
           candidate = candidate_;
-          return;
+          inMMContainer = !(mmContainer.remove(itr));  //returns true if successful so we
+                                                       //NOT the result to get if still in 
+                                                       //mmContainer
+          if (!inMMContainer) {
+            return;
+          }
         }
 
         ++itr;
@@ -1505,7 +1519,8 @@ CacheAllocator<CacheTrait>::findEviction(TierId tid, PoolId pid, ClassId cid) {
     // evict what we think as parent and see if the eviction of parent
     // recycles the child we intend to.
     auto toReleaseHandle =
-        evictNormalItem(*candidate, true /* skipIfTokenInvalid */);
+        evictNormalItem(*candidate, true /* skipIfTokenInvalid */,
+                        /* inMMContainer */ inMMContainer);
     auto ref = candidate->unmarkMoving();
 
     if (toReleaseHandle || ref == 0u) {
@@ -1608,7 +1623,8 @@ bool CacheAllocator<CacheTrait>::shouldWriteToNvmCacheExclusive(
 template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::WriteHandle
 CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
-    TierId tid, PoolId pid, Item& item) {
+    TierId tid, PoolId pid, Item& item, bool inMMContainer) {
+  if(inMMContainer) return {};
   if(item.isChainedItem()) return {}; // TODO: We do not support ChainedItem yet
   if(item.isExpired()) return acquire(&item);
 
@@ -1624,7 +1640,9 @@ CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
     if (newItemHdl) {
       XDCHECK_EQ(newItemHdl->getSize(), item.getSize());
 
-      return moveRegularItemOnEviction(item, newItemHdl);
+      //inMMContainer will be false
+      XDCHECK_EQ(inMMContainer,false);
+      return moveRegularItemOnEviction(item, newItemHdl, inMMContainer); 
     }
   }
 
@@ -1633,10 +1651,10 @@ CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
 
 template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::WriteHandle
-CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(Item& item) {
+CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(Item& item, bool inMMContainer) {
     auto tid = getTierId(item);
     auto pid = allocator_[tid]->getAllocInfo(item.getMemory()).poolId;
-    return tryEvictToNextMemoryTier(tid, pid, item);
+    return tryEvictToNextMemoryTier(tid, pid, item, inMMContainer);
 }
 
 template <typename CacheTrait>
@@ -2919,14 +2937,15 @@ void CacheAllocator<CacheTrait>::evictForSlabRelease(
 template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::ItemHandle
 CacheAllocator<CacheTrait>::evictNormalItem(Item& item,
-                                            bool skipIfTokenInvalid) {
+                                            bool skipIfTokenInvalid, 
+                                            bool inMMContainer) {
   XDCHECK(item.isMoving());
 
   if (item.isOnlyMoving()) {
     return ItemHandle{};
   }
 
-  auto evictHandle = tryEvictToNextMemoryTier(item);
+  auto evictHandle = tryEvictToNextMemoryTier(item, inMMContainer);
   if(evictHandle) return evictHandle;
 
   auto predicate = [](const Item& it) { return it.getRefCount() == 0; };
@@ -2952,7 +2971,9 @@ CacheAllocator<CacheTrait>::evictNormalItem(Item& item,
   XDCHECK_EQ(reinterpret_cast<uintptr_t>(handle.get()),
              reinterpret_cast<uintptr_t>(&item));
   XDCHECK_EQ(1u, handle->getRefCount());
-  removeFromMMContainer(item);
+  if (!inMMContainer) {
+    removeFromMMContainer(item);
+  }
 
   // now that we are the only handle and we actually removed something from
   // the RAM cache, we enqueue it to nvmcache.

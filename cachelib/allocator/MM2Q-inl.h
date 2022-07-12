@@ -304,15 +304,15 @@ bool MM2Q::Container<T, HookPtr>::remove(T& node) noexcept {
 }
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>
-void MM2Q::Container<T, HookPtr>::remove(Iterator& it) noexcept {
+bool MM2Q::Container<T, HookPtr>::remove(Iterator& it) noexcept {
   T& node = *it;
   XDCHECK(node.isInMMContainer());
-  ++it;
   // rebalance should not be triggered inside this remove, because changing the
   // queues while having the EvictionIterator can cause inconsistency problem
   // for the iterator. Also, this remove is followed by an insertion into the
   // same container, which will trigger rebalance.
   removeLocked(node, /* doRebalance = */ false);
+  return true;
 }
 
 template <typename T, MM2Q::Hook<T> T::*HookPtr>

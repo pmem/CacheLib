@@ -411,7 +411,7 @@ class MM2Q {
     //          state of node is unchanged.
     bool remove(T& node) noexcept;
 
-    // same as the above but uses an iterator context. The iterator is updated
+    // same as the above but uses an iterator context. The iterator is NOT updated
     // on removal of the corresponding node to point to the next node. The
     // iterator context holds the lock on the lru.
     //
@@ -421,7 +421,7 @@ class MM2Q {
     // having the iterator can cause probelms.
     //
     // @param it    Iterator that will be removed
-    void remove(Iterator& it) noexcept;
+    bool remove(Iterator& it) noexcept;
 
     // replaces one node with another, at the same position
     //

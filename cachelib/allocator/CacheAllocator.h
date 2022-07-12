@@ -1404,7 +1404,7 @@ class CacheAllocator : public CacheBase {
   //
   // @return true  If the move was completed, and the containers were updated
   //               successfully.
-  ItemHandle moveRegularItemOnEviction(Item& oldItem, ItemHandle& newItemHdl);
+  ItemHandle moveRegularItemOnEviction(Item& oldItem, ItemHandle& newItemHdl, bool inMMContainer);
 
   // Moves a regular item to a different slab. This should only be used during
   // slab release after the item's moving bit has been set. The user supplied
@@ -1571,7 +1571,7 @@ class CacheAllocator : public CacheBase {
   //
   // @return valid handle to the item. This will be the last
   //         handle to the item. On failure an empty handle.
-  WriteHandle tryEvictToNextMemoryTier(TierId tid, PoolId pid, Item& item);
+  WriteHandle tryEvictToNextMemoryTier(TierId tid, PoolId pid, Item& item, bool inMMContainer);
 
   // Try to move the item down to the next memory tier
   //
@@ -1579,7 +1579,7 @@ class CacheAllocator : public CacheBase {
   //
   // @return valid handle to the item. This will be the last
   //         handle to the item. On failure an empty handle. 
-  WriteHandle tryEvictToNextMemoryTier(Item& item);
+  WriteHandle tryEvictToNextMemoryTier(Item& item, bool inMMContainer);
 
   size_t memoryTierSize(TierId tid) const;
 
@@ -1708,7 +1708,7 @@ class CacheAllocator : public CacheBase {
   //
   // @return last handle for corresponding to item on success. empty handle on
   // failure. caller can retry if needed.
-  ItemHandle evictNormalItem(Item& item, bool skipIfTokenInvalid = false);
+  ItemHandle evictNormalItem(Item& item, bool skipIfTokenInvalid = false, bool inMMContainer = true);
 
   // Helper function to evict a child item for slab release
   // As a side effect, the parent item is also evicted

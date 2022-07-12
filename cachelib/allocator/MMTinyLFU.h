@@ -337,14 +337,14 @@ class MMTinyLFU {
     bool remove(T& node) noexcept;
 
     class Iterator;
-    // same as the above but uses an iterator context. The iterator is updated
+    // same as the above but uses an iterator context. The iterator is NOT updated
     // on removal of the corresponding node to point to the next node. The
     // iterator context holds the lock on the lru.
     //
     // iterator will be advanced to the next node after removing the node
     //
     // @param it    Iterator that will be removed
-    void remove(Iterator& it) noexcept;
+    bool remove(Iterator& it) noexcept;
 
     // replaces one node with another, at the same position
     //
