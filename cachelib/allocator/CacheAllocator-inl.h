@@ -419,7 +419,19 @@ CacheAllocator<CacheTrait>::allocateInternalTier(TierId tid,
   // TODO: per-tier
   (*stats_.allocAttempts)[pid][cid].inc();
 
-  void* memory = allocator_[tid]->allocate(pid, requiredSize);
+  void *memory = nullptr;
+
+  if (tid == 0 && config_.acTopTierEvictionWatermark > 0.0
+    && getAllocationClassStats(tid, pid, cid)
+      .approxFreePercent < config_.acTopTierEvictionWatermark) {
+    memory = findEviction(tid, pid, cid);
+  } 
+  
+  if (memory == nullptr) {
+    // TODO: should we try allocate item even if this will result in violating
+    // acTopTierEvictionWatermark?
+    memory = allocator_[tid]->allocate(pid, requiredSize);
+  }
 
   if (backgroundEvictor_.size() && !fromEvictorThread && (memory == nullptr || shouldWakeupBgEvictor(tid, pid, cid))) {
     backgroundEvictor_[backgroundWorkerId(tid, pid, cid, backgroundEvictor_.size())]->wakeUp();
@@ -1580,7 +1592,7 @@ CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
 
     if (newItemHdl) {
       XDCHECK_EQ(newItemHdl->getSize(), item.getSize());
-      if (tryMovingForSlabRelease(item, newItemHdl, itemMovingPredicate)) {
+      if (tryMovingItem(item, newItemHdl, itemMovingPredicate)) {
         return acquire(&item);
       }
     }
@@ -1612,7 +1624,7 @@ CacheAllocator<CacheTrait>::tryPromoteToNextMemoryTier(
         // if inclusive cache is allowed, replace even if there are active users.
         return config_.numDuplicateElements > 0 || item.getRefCount() == 0;
       };
-      if (tryMovingForSlabRelease(item, newItemHdl, std::move(predicate))) {
+      if (tryMovingItem(item, newItemHdl, std::move(predicate))) {
         return true;
       }
     }
@@ -2728,7 +2740,7 @@ bool CacheAllocator<CacheTrait>::moveForSlabRelease(
 
     // if we have a valid handle, try to move, if not, we retry.
     if (newItemHdl) {
-      isMoved = tryMovingForSlabRelease(oldItem, newItemHdl, itemMovingPredicate);
+      isMoved = tryMovingItem(oldItem, newItemHdl, itemMovingPredicate);
       if (isMoved) {
         break;
       }
@@ -2852,7 +2864,7 @@ CacheAllocator<CacheTrait>::allocateNewItemForOldItem(const Item& oldItem) {
 
 template <typename CacheTrait>
 template <typename Predicate>
-bool CacheAllocator<CacheTrait>::tryMovingForSlabRelease(
+bool CacheAllocator<CacheTrait>::tryMovingItem(
     Item& oldItem, ItemHandle& newItemHdl, Predicate&& predicate) {
   // By holding onto a user-level synchronization object, we ensure moving
   // a regular item or chained item is synchronized with any potential

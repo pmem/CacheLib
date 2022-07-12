@@ -103,6 +103,8 @@ and `minAcAllocationWatermark`: then extra checks (described below) are performe
 
 By default, allocation will always be performed from the upper tier.
 
+- `acTopTierEvictionWatermark`: If there is less that this percent of free memory in topmost tier, cachelib will attempt to evict from top tier. This option takes precedence before allocationWatermarks.
+
 ### Extra policies (used only when  percentage of free AllocationClasses is between `maxAcAllocationWatermark`
 and `minAcAllocationWatermark`)
 - `sizeThresholdPolicy`: If item is smaller than this value, always allocate it in upper tier.

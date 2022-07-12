@@ -292,6 +292,7 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   allocatorConfig_.numDuplicateElements = config_.numDuplicateElements;
   allocatorConfig_.syncPromotion = config_.syncPromotion;
   allocatorConfig_.promotionAcWatermark = config_.promotionAcWatermark;
+  allocatorConfig_.acTopTierEvictionWatermark = config_.acTopTierEvictionWatermark;
 
   if (!allocatorConfig_.cacheDir.empty()) {
     cache_ =

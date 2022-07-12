@@ -298,6 +298,7 @@ struct CacheConfig : public JSONConfig {
   double highEvictionAcWatermark{5.0};
   double minAcAllocationWatermark{0.0};
   double maxAcAllocationWatermark{0.0};
+  double acTopTierEvictionWatermark{0.0};
   uint64_t sizeThresholdPolicy{0};   
   double defaultTierChancePercentage{50.0};
   // TODO: default could be based on ratio

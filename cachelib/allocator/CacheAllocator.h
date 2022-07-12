@@ -1769,7 +1769,7 @@ class CacheAllocator : public CacheBase {
   // @return    true  if the item has been moved
   //            false if we have exhausted moving attempts
   template <typename Predicate>
-  bool tryMovingForSlabRelease(Item& item, ItemHandle& newItemHdl, Predicate &&predicate);
+  bool tryMovingItem(Item& item, ItemHandle& newItemHdl, Predicate &&predicate);
 
   // Evict an item from access and mm containers and
   // ensure it is safe for freeing.
