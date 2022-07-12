@@ -625,6 +625,7 @@ class CacheAllocatorConfig {
   double highEvictionAcWatermark{5.0};
   double minAcAllocationWatermark{0.0};
   double maxAcAllocationWatermark{0.0};
+  double acTopTierEvictionWatermark{0.0}; // TODO: make it per TIER?
   uint64_t sizeThresholdPolicy{0};   
   double defaultTierChancePercentage{50.0};
   // TODO: default could be based on ratio
