@@ -33,7 +33,7 @@
 #include "cachelib/cachebench/util/CacheConfig.h"
 
 DECLARE_bool(report_api_latency);
-DECLARE_bool(report_memory_usage_stats);
+DECLARE_string(report_memory_usage_stats);
 
 namespace facebook {
 namespace cachelib {
