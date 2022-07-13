@@ -2956,6 +2956,7 @@ CacheAllocator<CacheTrait>::evictNormalItem(Item& item,
 
   if (skipIfTokenInvalid && evictToNvmCache && !token.isValid()) {
     stats_.evictFailConcurrentFill.inc();
+    //if we have failed and the item is not in mmContainer what should we do??
     return ItemHandle{};
   }
 
@@ -2965,6 +2966,11 @@ CacheAllocator<CacheTrait>::evictNormalItem(Item& item,
   auto handle = accessContainer_->removeIf(item, std::move(predicate));
 
   if (!handle) {
+    //if we have failed and the item is not in mmContainer what should we do??
+    if (!inMMContainer) {
+        insertInMMContainer(item);
+        stats_.evictFailNotInMMContainer.inc();
+    }
     return handle;
   }
 

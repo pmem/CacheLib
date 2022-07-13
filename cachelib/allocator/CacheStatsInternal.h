@@ -223,6 +223,9 @@ struct Stats {
 
   // Eviction failures due to parent cannot be removed from access container
   AtomicCounter evictFailParentAC{0};
+  
+  // Eviction failures due to not being in mmContainer and not removed from access container
+  AtomicCounter evictFailNotInMMContainer{0};
 
   // Eviction failures due to parent cannot be removed because it's being
   // moved

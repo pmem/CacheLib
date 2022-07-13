@@ -27,6 +27,8 @@ namespace cachelib {
 namespace cachebench {
 struct Stats {
   uint64_t numEvictions{0};
+  uint64_t numEvictFailAC{0};
+  uint64_t numEvictFailNotInMMContainer{0};
   uint64_t numItems{0};
 
   uint64_t allocAttempts{0};
@@ -113,7 +115,11 @@ struct Stats {
                           allocAttempts,
                           invertPctFn(allocFailures, allocAttempts))
         << std::endl;
+
+
     out << folly::sformat("RAM Evictions : {:,}", numEvictions) << std::endl;
+    out << folly::sformat("RAM Evictions Failures : {:,}", numEvictFailAC) << std::endl;
+    out << folly::sformat("RAM Evictions FailNotInMMContainer : {:,}", numEvictFailNotInMMContainer) << std::endl;
 
     if (numCacheGets > 0) {
       out << folly::sformat("Cache Gets    : {:,}", numCacheGets) << std::endl;

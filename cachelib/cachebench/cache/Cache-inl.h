@@ -504,6 +504,8 @@ Stats Cache<Allocator>::getStats() const {
 
   Stats ret;
   ret.numEvictions = aggregate.numEvictions();
+  ret.numEvictFailAC = cacheStats.numEvictionFailureFromAccessContainer;
+  ret.numEvictFailNotInMMContainer = cacheStats.numEvictionFailureFromNotInMMContainer;
   ret.numItems = aggregate.numItems();
   ret.allocAttempts = cacheStats.allocAttempts;
   ret.allocFailures = cacheStats.allocFailures;

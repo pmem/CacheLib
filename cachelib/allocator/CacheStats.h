@@ -437,6 +437,7 @@ struct GlobalCacheStats {
   uint64_t numChainedParentItems{0};
 
   // number of eviction failures
+  uint64_t numEvictionFailureFromNotInMMContainer{0};
   uint64_t numEvictionFailureFromAccessContainer{0};
   uint64_t numEvictionFailureFromConcurrentFill{0};
   uint64_t numEvictionFailureFromParentAccessContainer{0};
