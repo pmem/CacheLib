@@ -84,7 +84,7 @@ class CacheBase {
   CacheBase& operator=(CacheBase&&) = default;
 
   // TODO: come up with some reasonable number
-  static constexpr unsigned kMaxTiers = 8;
+  static constexpr unsigned kMaxTiers = 2;
 
   // Get a string referring to the cache name for this cache
   virtual const std::string getCacheName() const = 0;
@@ -100,8 +100,8 @@ class CacheBase {
   // @param poolId   the pool id
   virtual PoolStats getPoolStats(PoolId poolId) const = 0;
 
-  virtual AllocationClassBaseStat getAllocationClassStats(TierId, PoolId pid, ClassId cid)
-      const = 0;
+  virtual AllocationClassBaseStat getAllocationClassStats(
+      TierId, PoolId pid, ClassId cid) const = 0;
 
   // @param poolId   the pool id
   virtual AllSlabReleaseEvents getAllSlabReleaseEvents(PoolId poolId) const = 0;
