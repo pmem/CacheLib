@@ -96,7 +96,8 @@ struct Stats {
   uint64_t invalidDestructorCount{0};
   int64_t unDestructedItemCount{0};
 
-  std::map<TierId, std::map<PoolId, std::map<ClassId, AllocationClassBaseStat>>> allocationClassStats;
+  std::map<TierId, std::map<PoolId, std::map<ClassId, AllocationClassBaseStat>>>
+      allocationClassStats;
 
   std::vector<double> slabsApproxFreePercentages;
 
@@ -122,7 +123,9 @@ struct Stats {
 
     if (FLAGS_report_memory_usage_stats) {
       for (TierId tid = 0; tid < slabsApproxFreePercentages.size(); tid++) {
-        out << folly::sformat("tid{:2} free slabs : {:.2f}%", tid, slabsApproxFreePercentages[tid]) << std::endl;
+        out << folly::sformat("tid{:2} free slabs : {:.2f}%", tid,
+                              slabsApproxFreePercentages[tid])
+            << std::endl;
       }
 
       auto formatMemory = [](size_t bytes) -> std::tuple<std::string, double> {
@@ -142,26 +145,40 @@ struct Stats {
       };
 
       auto foreachAC = [&](auto cb) {
-        for (auto &tidStats : allocationClassStats) {
-          for (auto &pidStat : tidStats.second) {
-            for (auto &cidStat : pidStat.second) {
+        for (auto& tidStats : allocationClassStats) {
+          for (auto& pidStat : tidStats.second) {
+            for (auto& cidStat : pidStat.second) {
               cb(tidStats.first, pidStat.first, cidStat.first, cidStat.second);
             }
           }
         }
       };
 
-      foreachAC([&](auto tid, auto pid, auto cid, auto stats){
+      foreachAC([&](auto tid, auto pid, auto cid, auto stats) {
         auto [allocSizeSuffix, allocSize] = formatMemory(stats.allocSize);
         auto [memorySizeSuffix, memorySize] = formatMemory(stats.memorySize);
-        out << folly::sformat("tid{:2} pid{:2} cid{:4} {:8.2f}{} memorySize: {:8.2f}{}",
-          tid, pid, cid, allocSize, allocSizeSuffix, memorySize, memorySizeSuffix) << std::endl;
+        out << folly::sformat(
+                   "tid{:2} pid{:2} cid{:4} {:8.2f}{} memorySize: {:8.2f}{}",
+                   tid, pid, cid, allocSize, allocSizeSuffix, memorySize,
+                   memorySizeSuffix)
+            << std::endl;
       });
 
-      foreachAC([&](auto tid, auto pid, auto cid, auto stats){
+      foreachAC([&](auto tid, auto pid, auto cid, auto stats) {
         auto [allocSizeSuffix, allocSize] = formatMemory(stats.allocSize);
-        out << folly::sformat("tid{:2} pid{:2} cid{:4} {:8.2f}{} free: {:4.2f}%",
-          tid, pid, cid, allocSize, allocSizeSuffix, stats.approxFreePercent) << std::endl;
+        out << folly::sformat(
+                   "tid{:2} pid{:2} cid{:4} {:8.2f}{} free: {:4.2f}%", tid, pid,
+                   cid, allocSize, allocSizeSuffix, stats.approxFreePercent)
+            << std::endl;
+      });
+
+      foreachAC([&](auto tid, auto pid, auto cid, auto stats) {
+        auto [allocSizeSuffix, allocSize] = formatMemory(stats.allocSize);
+        out << folly::sformat(
+                   "tid{:2} pid{:2} cid{:4} {:8.2f}{} latency: {:8.2f}%", tid,
+                   pid, cid, allocSize, allocSizeSuffix,
+                   stats.allocLatencyNs.estimate())
+            << std::endl;
       });
     }
 
