@@ -163,6 +163,12 @@ struct Stats {
         out << folly::sformat("tid{:2} pid{:2} cid{:4} {:8.2f}{} free: {:4.2f}%",
           tid, pid, cid, allocSize, allocSizeSuffix, stats.approxFreePercent) << std::endl;
       });
+
+      foreachAC([&](auto tid, auto pid, auto cid, auto stats){
+        auto [allocSizeSuffix, allocSize] = formatMemory(stats.allocSize);
+        out << folly::sformat("tid{:2} pid{:2} cid{:4} {:8.2f}{} latency: {:8.2f}%",
+          tid, pid, cid, allocSize, allocSizeSuffix, stats.allocLatencyNs.estimate()) << std::endl;
+      });
     }
 
     if (numCacheGets > 0) {
