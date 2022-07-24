@@ -25,12 +25,26 @@ void MultiDList<T, HookPtr>::Iterator::goForward() noexcept {
   }
   // Move iterator forward
   ++currIter_;
-  // If we land at the rend of this list, move to the previous list.
-  while (index_ != kInvalidIndex &&
-         currIter_ == mlist_.lists_[index_]->rend()) {
-    --index_;
-    if (index_ != kInvalidIndex) {
-      currIter_ = mlist_.lists_[index_]->rbegin();
+
+  if (currIter_.getDirection() == DListIterator::Direction::FROM_HEAD) {
+    // If we land at the rend of this list, move to the previous list.
+    while (index_ != kInvalidIndex && index_ != mlist_.lists_.size() &&
+           currIter_ == mlist_.lists_[index_]->end()) {
+      ++index_;
+      if (index_ != kInvalidIndex && index_ != mlist_.lists_.size()) {
+        currIter_ = mlist_.lists_[index_]->begin();
+      } else {
+          return;
+      }
+    }
+  } else {
+    // If we land at the rend of this list, move to the previous list.
+    while (index_ != kInvalidIndex &&
+           currIter_ == mlist_.lists_[index_]->rend()) {
+      --index_;
+      if (index_ != kInvalidIndex) {
+        currIter_ = mlist_.lists_[index_]->rbegin();
+      }
     }
   }
 }
@@ -80,7 +94,12 @@ void MultiDList<T, HookPtr>::Iterator::initToValidBeginFrom(
          mlist_.lists_[index_]->size() == 0) {
     ++index_;
   }
-  currIter_ = index_ == mlist_.lists_.size()
+  if (index_ == mlist_.lists_.size()) {
+    //we reached the end - we should get set to
+    //invalid index
+    index_ = std::numeric_limits<size_t>::max();
+  }
+  currIter_ = index_ == std::numeric_limits<size_t>::max()
                   ? mlist_.lists_[0]->begin()
                   : mlist_.lists_[index_]->begin();
 }

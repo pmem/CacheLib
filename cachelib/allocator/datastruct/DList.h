@@ -216,6 +216,10 @@ class DList {
       curr_ = dir_ == Direction::FROM_HEAD ? dlist_->head_ : dlist_->tail_;
     }
 
+    Direction getDirection() noexcept {
+        return dir_;
+    }
+
    protected:
     void goForward() noexcept;
     void goBackward() noexcept;
