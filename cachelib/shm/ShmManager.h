@@ -226,6 +226,10 @@ class ShmManager {
   // file and used for attaching to the segment.
   std::unordered_map<std::string, std::string> nameToKey_{};
 
+  // name to ShmTypeOpts mapping used for reattaching. This is persisted to a
+  // file and used for attaching to the segment.
+  std::unordered_map<std::string, ShmTypeOpts> nameToType_{};
+
   // file handle for the metadata file. It remains open throughout the lifetime
   // of the object.
   std::ofstream metadataStream_;
@@ -234,6 +238,7 @@ class ShmManager {
   // throughout the lifetime of the object.
   folly::File metaDataLockFile_;
 
+  // Use posix is a NO-OP field retained for backward compatibility.
   const bool usePosix_{false};
 
   // this file is used to persist the name to key mapping so that we can

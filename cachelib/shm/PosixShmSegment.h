@@ -49,18 +49,13 @@ class PosixShmSegment : public ShmBase {
   //
   // @param name  Name of the segment
   // @param opts  the options for attaching to the segment.
-  PosixShmSegment(ShmAttachT,
-                  const std::string& name,
-                  ShmSegmentOpts opts = {});
+  PosixShmSegment(ShmAttachT, ShmSegmentOpts opts);
 
   // create a new segment
   // @param name  The name of the segment
   // @param size  The size of the segment. This will be rounded up to the
   //              nearest page size.
-  PosixShmSegment(ShmNewT,
-                  const std::string& name,
-                  size_t size,
-                  ShmSegmentOpts opts = {});
+  PosixShmSegment(ShmNewT, size_t size, ShmSegmentOpts opts);
 
   // destructor
   ~PosixShmSegment() override;
@@ -95,11 +90,11 @@ class PosixShmSegment : public ShmBase {
   static bool removeByName(const std::string& name);
 
  private:
-  static int createNewSegment(const std::string& name);
-  static int getExisting(const std::string& name, const ShmSegmentOpts& opts);
+  static int createNewSegment(const ShmSegmentOpts& opts);
+  static int getExisting(const ShmSegmentOpts& opts);
 
   // returns the key type corresponding to the given name.
-  static std::string createKeyForName(const std::string& name) noexcept;
+  static std::string createKeyForName(const ShmSegmentOpts& opts) noexcept;
 
   // resize the segment
   // @param size  the new size

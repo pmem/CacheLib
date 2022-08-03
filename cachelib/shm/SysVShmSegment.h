@@ -42,18 +42,14 @@ class SysVShmSegment : public ShmBase {
   //
   // @param key   the key for the segment.
   // @param opts  the options for attaching the segment.
-  SysVShmSegment(ShmAttachT, const std::string& name, ShmSegmentOpts opts = {});
+  SysVShmSegment(ShmAttachT, ShmSegmentOpts opts);
 
   // creates a news segment with the given key.
   //
-  // @param key   the key for the segment.
   // @param size  the size of the segment. This will be rounded up to the
   //              nearest page size
   // @param opts  the options for creating the segment.
-  SysVShmSegment(ShmNewT,
-                 const std::string& name,
-                 size_t size,
-                 ShmSegmentOpts opts = {});
+  SysVShmSegment(ShmNewT, size_t size, ShmSegmentOpts opts);
 
   ~SysVShmSegment() override try {
     // delete the reference mapping so the segment can be deleted if its
@@ -86,16 +82,14 @@ class SysVShmSegment : public ShmBase {
 
   // useful for removing without attaching
   // @return true if the segment existed. false otherwise
-  static bool removeByName(const std::string& name);
+  static bool removeByName(const ShmSegmentOpts& opts);
 
  private:
   // returns the key identifier for the given name.
-  static KeyType createKeyForName(const std::string& name) noexcept;
+  static KeyType createKeyForName(const ShmSegmentOpts& opts) noexcept;
 
-  static int createNewSegment(key_t key,
-                              size_t size,
-                              const ShmSegmentOpts& opts);
-  static int attachToExisting(key_t key, const ShmSegmentOpts& opts);
+  static int createNewSegment(size_t size, const ShmSegmentOpts& opts);
+  static int attachToExisting(const ShmSegmentOpts& opts);
   void lockPagesInMemory() const;
   void createReferenceMapping();
   void deleteReferenceMapping() const;

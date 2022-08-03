@@ -192,9 +192,7 @@ void ensureSizeforHugePage(size_t size) {
   }
 }
 
-int SysVShmSegment::createNewSegment(key_t key,
-                                     size_t size,
-                                     const ShmSegmentOpts& opts) {
+int SysVShmSegment::createNewSegment(size_t size, const ShmSegmentOpts& opts) {
   size = detail::getPageAlignedSize(size, opts.pageSize);
   int extraFlags = 0;
 
@@ -216,33 +214,30 @@ int SysVShmSegment::createNewSegment(key_t key,
   }
 
   const int flags = IPC_CREAT | IPC_EXCL | kModeRWFlags | extraFlags;
+  auto key = createKeyForName(opts);
   return detail::shmGetImpl(key, size, flags);
 }
 
-int SysVShmSegment::attachToExisting(key_t key, const ShmSegmentOpts& opts) {
+int SysVShmSegment::attachToExisting(const ShmSegmentOpts& opts) {
   // size is optional for attach. using anything smaller than existing will
   // attach.
   const int flags = opts.readOnly ? kModeRFlags : kModeRWFlags;
+  auto key = createKeyForName(opts);
   return detail::shmGetImpl(key, 0, flags);
 }
 
-SysVShmSegment::SysVShmSegment(ShmAttachT,
-                               const std::string& name,
-                               ShmSegmentOpts opts)
-    : ShmBase(std::move(opts), name),
-      key_(createKeyForName(name)),
+SysVShmSegment::SysVShmSegment(ShmAttachT, ShmSegmentOpts opts)
+    : ShmBase(std::move(opts)),
+      key_(createKeyForName(opts_)),
       shmid_(attachToExisting(key_, opts_)) {
   markActive();
   createReferenceMapping();
   XDCHECK(isActive());
 }
 
-SysVShmSegment::SysVShmSegment(ShmNewT,
-                               const std::string& name,
-                               size_t size,
-                               ShmSegmentOpts opts)
-    : ShmBase(std::move(opts), name),
-      key_(createKeyForName(name)),
+SysVShmSegment::SysVShmSegment(ShmNewT, size_t size, ShmSegmentOpts opts)
+    : ShmBase(std::move(opts)),
+      key_(createKeyForName(opts_)),
       shmid_(createNewSegment(key_, size, opts_)) {
   markActive();
   createReferenceMapping();
@@ -290,9 +285,9 @@ size_t SysVShmSegment::getSize() const {
   return buf.shm_segsz;
 }
 
-bool SysVShmSegment::removeByName(const std::string& name) {
+bool SysVShmSegment::removeByName(const ShmSegmentOpts& opts) {
   try {
-    auto key = createKeyForName(name);
+    auto key = createKeyForName(opts);
     const int shmid = detail::shmGetImpl(key, 0, kModeRWFlags);
     detail::shmCtlImpl(shmid, IPC_RMID, nullptr);
     return true;
@@ -304,13 +299,13 @@ bool SysVShmSegment::removeByName(const std::string& name) {
   }
 }
 
-key_t SysVShmSegment::createKeyForName(const std::string& name) noexcept {
+key_t SysVShmSegment::createKeyForName(const ShmSegmentOpts& opts) noexcept {
   // we dont need ftok.
   static_assert(std::is_same<KeyType, key_t>::value,
                 "key type is incompatible");
 
   // key_t is an int
-  return folly::hash::fnv32(name);
+  return folly::hash::fnv32(opts.typeOpts.id);
 }
 
 void SysVShmSegment::createReferenceMapping() {

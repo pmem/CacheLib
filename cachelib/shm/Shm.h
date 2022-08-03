@@ -44,36 +44,23 @@ namespace cachelib {
 class ShmSegment {
  public:
   // create a new segment with the given key
-  // @param name   name of the segment
   // @param size   size of the segment.
   // @param opts   the options for the segment.
-  ShmSegment(ShmNewT,
-             std::string name,
-             size_t size,
-             bool usePosix,
-             ShmSegmentOpts opts = {}) {
-    if (usePosix) {
-      segment_ = std::make_unique<PosixShmSegment>(ShmNew, std::move(name),
-                                                   size, opts);
+  ShmSegment(ShmNewT, size_t size, ShmSegmentOpts opts) {
+    if (opts.typeOpts.type == ShmTypeT::POSIX) {
+      segment_ = std::make_unique<PosixShmSegment>(ShmNew, size, opts);
     } else {
-      segment_ =
-          std::make_unique<SysVShmSegment>(ShmNew, std::move(name), size, opts);
+      segment_ = std::make_unique<SysVShmSegment>(ShmNew, size, opts);
     }
   }
 
   // attach to an existing segment with the given key
-  // @param name   name of the segment
   // @param opts   the options for the segment.
-  ShmSegment(ShmAttachT,
-             std::string name,
-             bool usePosix,
-             ShmSegmentOpts opts = {}) {
-    if (usePosix) {
-      segment_ =
-          std::make_unique<PosixShmSegment>(ShmAttach, std::move(name), opts);
+  ShmSegment(ShmAttachT, ShmSegmentOpts opts) {
+    if (opts.typeOpts.type == ShmTypeT::POSIX) {
+      segment_ = std::make_unique<PosixShmSegment>(ShmAttach, opts);
     } else {
-      segment_ =
-          std::make_unique<SysVShmSegment>(ShmAttach, std::move(name), opts);
+      segment_ = std::make_unique<SysVShmSegment>(ShmAttach, opts);
     }
   }
 

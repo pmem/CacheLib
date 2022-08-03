@@ -168,22 +168,15 @@ void munmapImpl(void* addr, size_t length) {
 
 } // namespace detail
 
-PosixShmSegment::PosixShmSegment(ShmAttachT,
-                                 const std::string& name,
-                                 ShmSegmentOpts opts)
-    : ShmBase(std::move(opts), createKeyForName(name)),
-      fd_(getExisting(getName(), opts_)) {
+PosixShmSegment::PosixShmSegment(ShmAttachT, ShmSegmentOpts opts)
+    : ShmBase(std::move(opts)), fd_(getExisting(opts_)) {
   XDCHECK_NE(fd_, kInvalidFD);
   markActive();
   createReferenceMapping();
 }
 
-PosixShmSegment::PosixShmSegment(ShmNewT,
-                                 const std::string& name,
-                                 size_t size,
-                                 ShmSegmentOpts opts)
-    : ShmBase(std::move(opts), createKeyForName(name)),
-      fd_(createNewSegment(getName())) {
+PosixShmSegment::PosixShmSegment(ShmNewT, size_t size, ShmSegmentOpts opts)
+    : ShmBase(std::move(opts)), fd_(getExisting(opts_)) {
   markActive();
   resize(size);
   XDCHECK(isActive());
@@ -213,15 +206,16 @@ PosixShmSegment::~PosixShmSegment() {
   }
 }
 
-int PosixShmSegment::createNewSegment(const std::string& name) {
+int PosixShmSegment::createNewSegment(const ShmSegmentOpts& opts) {
+  auto key = createKeyForName(opts);
   constexpr static int createFlags = O_RDWR | O_CREAT | O_EXCL;
-  return detail::shmOpenImpl(name.c_str(), createFlags);
+  return detail::shmOpenImpl(key.c_str(), createFlags);
 }
 
-int PosixShmSegment::getExisting(const std::string& name,
-                                 const ShmSegmentOpts& opts) {
+int PosixShmSegment::getExisting(const ShmSegmentOpts& opts) {
+  auto key = createKeyForName(opts);
   int flags = opts.readOnly ? O_RDONLY : O_RDWR;
-  return detail::shmOpenImpl(name.c_str(), flags);
+  return detail::shmOpenImpl(key.c_str(), flags);
 }
 
 void PosixShmSegment::markForRemoval() {
@@ -236,9 +230,9 @@ void PosixShmSegment::markForRemoval() {
   }
 }
 
-bool PosixShmSegment::removeByName(const std::string& segmentName) {
+bool PosixShmSegment::removeByName(const ShmSegmentOpts& opts) {
   try {
-    auto key = createKeyForName(segmentName);
+    auto key = createKeyForName(opts);
     detail::unlinkImpl(key.c_str());
     return true;
   } catch (const std::system_error& e) {
@@ -320,9 +314,10 @@ void PosixShmSegment::unMap(void* addr) const {
 }
 
 std::string PosixShmSegment::createKeyForName(
-    const std::string& name) noexcept {
+    const ShmSegmentOpts& opts) noexcept {
   // ensure that the slash is always there in the head. repetitive
   // slash is fine.
+  auto name = opts.typeOpts.id;
   if (name.empty() || name[0] != '/') {
     return "/" + name;
   } else {
