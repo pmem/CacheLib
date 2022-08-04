@@ -1,0 +1,120 @@
+{
+  "cache_config": {
+    "cacheSizeMB": 8192,
+    "usePosixShm": true,
+    "poolRebalanceIntervalSec": 0,
+    "persistedCacheDir": "/tmp/mem-tier",
+    "memoryTiers" : [
+      {
+        "ratio": 1
+      },
+      {
+        "ratio": 1,
+        "file": "/mnt/tmpfs_pmem/memory-mapped-tier"
+      }
+    ],
+    "numPools": 4,
+    "poolSizes": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ]
+  },
+  "test_config": 
+  {
+    "validateValue": true,
+    "generator": "workload",
+    "enableLookaside": true, 
+    "keyPoolDistribution": [
+      0.25,
+      0.25,
+      0.25,
+      0.25
+    ],
+//    "numKeys": 71605574, 
+    "numKeys": 286422296, 
+    "numOps": 5000000, 
+    "numThreads": 20, 
+    "opPoolDistribution": [
+      0.25,
+      0.25,
+      0.25,
+      0.25
+    ],
+    "poolDistributions": [
+      {
+        "addChainedRatio": 0.0, 
+        "delRatio": 0.0, 
+        "getRatio": 0.7684563460126871, 
+        "keySizeRange": [
+          1, 
+          8, 
+          64
+        ], 
+        "keySizeRangeProbability": [
+          0.3, 
+          0.7
+        ], 
+        "loneGetRatio": 0.2315436539873129, 
+        "popDistFile": "pop.json", 
+        "setRatio": 0.0, 
+        "valSizeDistFile": "sizes.json"
+      },
+      {
+        "addChainedRatio": 0.0, 
+        "delRatio": 0.0, 
+        "getRatio": 0.8841112719979642,
+        "keySizeRange": [
+          1,
+          8,
+          64
+        ],
+        "keySizeRangeProbability": [
+          0.3,
+          0.7
+        ],
+        "loneGetRatio": 0.1158887280020357,
+        "popDistFile": "assoc_pop.json",
+        "setRatio": 0.0,
+        "valSizeDistFile": "assoc_sizes.json"
+      },
+      {
+        "addChainedRatio": 0.0, 
+        "delRatio": 0.0, 
+        "getRatio": 0.7684563460126871, 
+        "keySizeRange": [
+          1, 
+          8, 
+          64
+        ], 
+        "keySizeRangeProbability": [
+          0.3, 
+          0.7
+        ], 
+        "loneGetRatio": 0.2315436539873129, 
+        "popDistFile": "pop.json", 
+        "setRatio": 0.0, 
+        "valSizeDistFile": "sizes.json"
+      },
+      {
+        "addChainedRatio": 0.0, 
+        "delRatio": 0.0, 
+        "getRatio": 0.8841112719979642,
+        "keySizeRange": [
+          1,
+          8,
+          64
+        ],
+        "keySizeRangeProbability": [
+          0.3,
+          0.7
+        ],
+        "loneGetRatio": 0.1158887280020357,
+        "popDistFile": "assoc_pop.json",
+        "setRatio": 0.0,
+        "valSizeDistFile": "assoc_sizes.json"
+      }
+    ]
+  }
+}
