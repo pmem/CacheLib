@@ -130,7 +130,7 @@ typename MultiDList<T, HookPtr>::Iterator MultiDList<T, HookPtr>::rbegin(
   if (listIdx >= lists_.size()) {
     throw std::invalid_argument("Invalid list index for MultiDList iterator.");
   }
-  return MultiDList<T, HookPtr>::Iterator(*this, listIdx);
+  return MultiDList<T, HookPtr>::Iterator(*this, listIdx, false);
 }
 
 template <typename T, DListHook<T> T::*HookPtr>

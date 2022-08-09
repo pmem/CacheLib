@@ -110,16 +110,6 @@ class MultiDList {
     }
 
     explicit Iterator(const MultiDList<T, HookPtr>& mlist,
-                      size_t listIdx) noexcept
-        : currIter_(mlist.lists_[mlist.lists_.size() - 1]->rbegin()),
-          mlist_(mlist) {
-      XDCHECK_LT(listIdx, mlist.lists_.size());
-      initToValidRBeginFrom(listIdx);
-      // We should either point to an element or the end() iterator
-      // which has an invalid index_.
-      XDCHECK(index_ == kInvalidIndex || currIter_.get() != nullptr);
-    }
-    explicit Iterator(const MultiDList<T, HookPtr>& mlist,
                       size_t listIdx, bool head) noexcept
         : currIter_(mlist.lists_[mlist.lists_.size() - 1]->rbegin()),
           mlist_(mlist) {
